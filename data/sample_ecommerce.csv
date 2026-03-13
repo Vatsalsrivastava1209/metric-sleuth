@@ -1,0 +1,92 @@
+date,revenue,traffic,orders,conversion_rate,region,device,traffic_source
+2024-01-01,45200,12000,380,0.0317,North America,Desktop,Organic Search
+2024-01-02,46800,12400,395,0.0319,North America,Desktop,Organic Search
+2024-01-03,44100,11800,370,0.0314,Europe,Mobile,Paid Search
+2024-01-04,47500,12900,402,0.0312,North America,Mobile,Social Media
+2024-01-05,48200,13100,415,0.0317,Asia Pacific,Desktop,Email
+2024-01-06,43500,11500,360,0.0313,Europe,Tablet,Direct
+2024-01-07,41200,11000,340,0.0309,Latin America,Mobile,Organic Search
+2024-01-08,46000,12200,385,0.0316,North America,Desktop,Paid Search
+2024-01-09,47800,12700,400,0.0315,Europe,Desktop,Organic Search
+2024-01-10,49100,13300,420,0.0316,North America,Mobile,Social Media
+2024-01-11,48500,13000,410,0.0315,Asia Pacific,Desktop,Email
+2024-01-12,47200,12600,398,0.0317,North America,Desktop,Organic Search
+2024-01-13,45500,12100,380,0.0314,Europe,Mobile,Direct
+2024-01-14,44300,11700,368,0.0315,Latin America,Tablet,Paid Search
+2024-01-15,23100,6500,155,0.0238,North America,Mobile,Organic Search
+2024-01-16,24500,7200,170,0.0236,Europe,Desktop,Paid Search
+2024-01-17,25800,7800,182,0.0233,North America,Desktop,Social Media
+2024-01-18,26200,8100,190,0.0235,Asia Pacific,Mobile,Email
+2024-01-19,47900,12900,405,0.0314,North America,Desktop,Organic Search
+2024-01-20,48600,13100,415,0.0317,Europe,Mobile,Direct
+2024-01-21,49200,13400,422,0.0315,North America,Desktop,Paid Search
+2024-01-22,47800,12800,403,0.0315,Asia Pacific,Tablet,Social Media
+2024-01-23,46500,12400,392,0.0316,Latin America,Mobile,Organic Search
+2024-01-24,45800,12100,383,0.0316,North America,Desktop,Email
+2024-01-25,47100,12600,395,0.0314,Europe,Mobile,Organic Search
+2024-01-26,48900,13200,418,0.0317,North America,Desktop,Social Media
+2024-01-27,49500,13500,425,0.0315,Asia Pacific,Desktop,Paid Search
+2024-01-28,48200,13000,412,0.0316,North America,Mobile,Direct
+2024-01-29,47000,12700,398,0.0314,Europe,Desktop,Organic Search
+2024-01-30,12200,4800,88,0.0183,North America,Mobile,Organic Search
+2024-01-31,13500,5300,98,0.0185,Latin America,Desktop,Paid Search
+2024-02-01,47500,12800,403,0.0315,North America,Desktop,Organic Search
+2024-02-02,48900,13100,416,0.0318,Europe,Mobile,Email
+2024-02-03,49600,13400,424,0.0316,North America,Desktop,Social Media
+2024-02-04,47100,12600,396,0.0314,Asia Pacific,Tablet,Paid Search
+2024-02-05,45800,12200,384,0.0315,North America,Mobile,Direct
+2024-02-06,44600,11900,373,0.0313,Europe,Desktop,Organic Search
+2024-02-07,43200,11500,360,0.0313,Latin America,Mobile,Social Media
+2024-02-08,46700,12500,393,0.0315,North America,Desktop,Paid Search
+2024-02-09,48100,12900,409,0.0317,Europe,Mobile,Organic Search
+2024-02-10,49400,13300,421,0.0316,North America,Desktop,Email
+2024-02-11,48800,13100,415,0.0317,Asia Pacific,Mobile,Direct
+2024-02-12,47500,12700,401,0.0316,North America,Desktop,Organic Search
+2024-02-13,46200,12300,388,0.0315,Europe,Tablet,Social Media
+2024-02-14,55400,14800,470,0.0318,North America,Mobile,Social Media
+2024-02-15,54200,14500,460,0.0317,Europe,Desktop,Email
+2024-02-16,53100,14200,450,0.0317,North America,Desktop,Paid Search
+2024-02-17,48900,13100,416,0.0318,Asia Pacific,Mobile,Organic Search
+2024-02-18,47600,12800,402,0.0314,Latin America,Desktop,Direct
+2024-02-19,46300,12400,390,0.0315,North America,Mobile,Organic Search
+2024-02-20,45100,12000,377,0.0314,Europe,Desktop,Paid Search
+2024-02-21,47800,12800,405,0.0316,North America,Desktop,Social Media
+2024-02-22,49100,13200,419,0.0317,Asia Pacific,Mobile,Email
+2024-02-23,48500,13000,413,0.0318,North America,Desktop,Organic Search
+2024-02-24,47200,12600,399,0.0316,Europe,Tablet,Direct
+2024-02-25,16800,5900,110,0.0186,North America,Mobile,Organic Search
+2024-02-26,17500,6200,118,0.0190,Latin America,Desktop,Social Media
+2024-02-27,48600,13100,413,0.0315,North America,Mobile,Paid Search
+2024-02-28,49200,13300,420,0.0316,Europe,Desktop,Email
+2024-02-29,49800,13500,425,0.0315,North America,Desktop,Organic Search
+2024-03-01,48400,13000,411,0.0316,Asia Pacific,Mobile,Social Media
+2024-03-02,47100,12600,397,0.0315,North America,Desktop,Paid Search
+2024-03-03,45900,12200,384,0.0314,Europe,Desktop,Direct
+2024-03-04,44600,11800,371,0.0314,Latin America,Mobile,Organic Search
+2024-03-05,47400,12700,399,0.0314,North America,Desktop,Email
+2024-03-06,48800,13100,415,0.0317,Europe,Tablet,Paid Search
+2024-03-07,50100,13500,428,0.0317,North America,Mobile,Social Media
+2024-03-08,49500,13300,422,0.0317,Asia Pacific,Desktop,Organic Search
+2024-03-09,48200,12900,410,0.0318,North America,Desktop,Email
+2024-03-10,46900,12500,396,0.0317,Europe,Mobile,Direct
+2024-03-11,45600,12100,383,0.0316,Latin America,Desktop,Organic Search
+2024-03-12,48100,12900,408,0.0316,North America,Mobile,Social Media
+2024-03-13,49400,13300,420,0.0316,Europe,Desktop,Paid Search
+2024-03-14,50700,13600,433,0.0318,North America,Desktop,Organic Search
+2024-03-15,10500,4300,72,0.0167,North America,Mobile,Organic Search
+2024-03-16,11200,4600,78,0.0170,Europe,Desktop,Paid Search
+2024-03-17,49100,13200,419,0.0317,North America,Desktop,Social Media
+2024-03-18,50300,13500,429,0.0318,Asia Pacific,Mobile,Email
+2024-03-19,49700,13400,424,0.0316,North America,Desktop,Direct
+2024-03-20,48400,13000,411,0.0316,Europe,Tablet,Organic Search
+2024-03-21,47100,12600,397,0.0315,Latin America,Mobile,Paid Search
+2024-03-22,48600,13100,413,0.0315,North America,Desktop,Social Media
+2024-03-23,49900,13400,425,0.0317,Europe,Mobile,Email
+2024-03-24,51200,13700,438,0.0320,North America,Desktop,Organic Search
+2024-03-25,50600,13600,432,0.0318,Asia Pacific,Desktop,Paid Search
+2024-03-26,49300,13200,420,0.0318,North America,Mobile,Direct
+2024-03-27,48000,12900,409,0.0317,Europe,Desktop,Organic Search
+2024-03-28,46700,12500,395,0.0316,Latin America,Mobile,Social Media
+2024-03-29,48200,12900,409,0.0317,North America,Desktop,Email
+2024-03-30,49500,13300,422,0.0317,Europe,Desktop,Paid Search
+2024-03-31,50800,13600,434,0.0319,North America,Mobile,Organic Search
