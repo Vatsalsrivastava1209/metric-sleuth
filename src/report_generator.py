@@ -142,7 +142,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
     lines.append(f"**Anomaly Date:** `{report['anomaly_date']}`")
 
     # ── Anomaly summary ───────────────────────────────────────────────────────
-    lines.append("\n---\n## 🚨 Anomalies Detected\n")
+    lines.append("\n---\n##  Anomalies Detected\n")
     if report["anomaly_summary"]:
         anom_df = pd.DataFrame(report["anomaly_summary"])
         lines.append(_md_table(anom_df))
@@ -150,7 +150,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No anomalies detected._")
 
     # ── Correlation findings ──────────────────────────────────────────────────
-    lines.append("\n---\n## 📊 Correlation Findings\n")
+    lines.append("\n---\n##  Correlation Findings\n")
     if report["correlation_findings"]:
         corr_df = pd.DataFrame(report["correlation_findings"])
         lines.append(_md_table(corr_df))
@@ -158,7 +158,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No correlation data._")
 
     # ── Contribution breakdown ────────────────────────────────────────────────
-    lines.append("\n---\n## 📉 Contribution Breakdown\n")
+    lines.append("\n---\n##  Contribution Breakdown\n")
     if report["contribution_breakdown"]:
         cont_df = pd.DataFrame(report["contribution_breakdown"])[
             ["factor", "pct_change", "contribution_pct"]
@@ -169,7 +169,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No contribution data._")
 
     # ── Segment impact ────────────────────────────────────────────────────────
-    lines.append("\n---\n## 🗂️ Segment Impact Analysis\n")
+    lines.append("\n---\n##  Segment Impact Analysis\n")
     if report["segment_impact"]:
         for dim, records in report["segment_impact"].items():
             lines.append(f"### {dim.title()}\n")
@@ -180,7 +180,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No segment data._")
 
     # ── Hypotheses ────────────────────────────────────────────────────────────
-    lines.append("\n---\n## 🔍 Potential Root Causes\n")
+    lines.append("\n---\n##  Potential Root Causes\n")
     if report["hypotheses"]:
         for h in report["hypotheses"]:
             conf_bar = "🟢" if h["confidence"] >= 0.75 else "🟡" if h["confidence"] >= 0.5 else "🔴"
@@ -195,7 +195,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No hypotheses generated._")
 
     # ── Recommended actions ───────────────────────────────────────────────────
-    lines.append("\n---\n## ✅ Recommended Actions\n")
+    lines.append("\n---\n##  Recommended Actions\n")
     if report["recommended_actions"]:
         for i, action in enumerate(report["recommended_actions"], 1):
             lines.append(f"{i}. {action}")

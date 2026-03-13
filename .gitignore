@@ -1,113 +1,114 @@
-# ===============================
+# ──────────────────────────────────────────────────────────────────────────────
+# MetricSleuth — .gitignore
+# ──────────────────────────────────────────────────────────────────────────────
 
-# Python Cache
-
-# ===============================
-
-**pycache**/
+# ── Python Cache ───────────────────────────────────────────────────────────────
+__pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 
-# ===============================
-
-# Virtual Environments
-
-# ===============================
-
+# ── Virtual Environments ───────────────────────────────────────────────────────
 venv/
 env/
 .venv/
+.env/
 ENV/
+env.bak/
+venv.bak/
 
-# ===============================
-
-# Environment Variables / Secrets
-
-# ===============================
-
+# ── Secrets & Environment Variables ───────────────────────────────────────────
 .env
 .env.*
 *.env
+secrets.toml
+!.env.example          # allow an example env file to be committed
 
-# ===============================
+# ── Streamlit ─────────────────────────────────────────────────────────────────
+.streamlit/            # local Streamlit config (credentials, secrets)
 
-# Jupyter Notebook Checkpoints
+# Streamlit Cloud deploy — KEEP these:
+# .streamlit/config.toml  ← uncomment if you want to commit Streamlit config
+# .streamlit/secrets.toml is auto-ignored above via secrets.toml
 
-# ===============================
-
+# ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
+*.ipynb
 
-# ===============================
-
-# Streamlit Cache
-
-# ===============================
-
-.streamlit/
-
-# ===============================
-
-# Data Files (Keep only sample data)
-
-# ===============================
-
+# ── Data ──────────────────────────────────────────────────────────────────────
+# Keep sample CSV, ignore everything else under data/
 data/*
 !data/sample_ecommerce.csv
 
-# ===============================
+# Generated outputs (reports saved by report_generator)
+output/
 
-# Logs
-
-# ===============================
-
+# ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 logs/
 
-# ===============================
+# ── ML / Model artifacts ──────────────────────────────────────────────────────
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.pt
+*.pth
+models/
 
-# OS Files
-
-# ===============================
-
-.DS_Store
-Thumbs.db
-
-# ===============================
-
-# IDE Files
-
-# ===============================
-
-.vscode/
-.idea/
-
-# ===============================
-
-# Build / Distribution
-
-# ===============================
-
+# ── Build / Distribution ──────────────────────────────────────────────────────
 build/
 dist/
 *.egg-info/
 .eggs/
+site/
+pip-wheel-metadata/
+MANIFEST
 
-# ===============================
-
-# Coverage Reports
-
-# ===============================
-
+# ── Testing & Coverage ────────────────────────────────────────────────────────
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+pytest.ini
+nosetests.xml
 
-# ===============================
+# ── Type checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.pytype/
+.dmypy.json
 
-# Temporary Files
+# ── OS Artefacts ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
 
-# ===============================
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
 
+# ── Temporary Files ───────────────────────────────────────────────────────────
 *.tmp
 *.temp
-*.swp
+*.bak
+tmp/
+
+# ── Profiling ─────────────────────────────────────────────────────────────────
+*.prof
+*.lprof
