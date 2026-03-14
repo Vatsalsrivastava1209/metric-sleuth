@@ -1,4 +1,4 @@
-# MetricSleuth 🔍
+# MetricSleuth 
 
 > **AI-powered Root Cause Analysis engine for business metrics.**
 
@@ -124,10 +124,10 @@ python src/report_generator.py
 ## Sample Output
 
 The RCA report includes:
-- 📊 Anomaly detection table with Z-scores
-- 🗂️ Segment performance breakdown
-- 🔗 Correlation matrix heatmap
-- 📉 Contribution donut chart
-- 🔍 Ranked hypotheses with confidence scores
-- ✅ Prioritised recommended actions
-- ⬇️ Downloadable Markdown report
+-  Anomaly detection table with Z-scores
+-  Segment performance breakdown
+-  Correlation matrix heatmap
+-  Contribution donut chart
+-  Ranked hypotheses with confidence scores
+-  Prioritised recommended actions
+-  Downloadable Markdown report
