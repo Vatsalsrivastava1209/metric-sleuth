@@ -291,8 +291,8 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "TRENDS", "ANOMALIES", "SEGMENTS", "CORRELATIONS", "FORECAST", "RCA REPORT",
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "TRENDS", "ANOMALIES", "SEGMENTS", "CORRELATIONS", "FORECAST", "RCA REPORT", "HISTORY",
 ])
 
 
@@ -504,6 +504,13 @@ with tab6:
                 exec_summary = generate_executive_summary(report_dict)
                 report_md    = report_to_markdown(report_dict)
 
+            # Auto-index into RAG knowledge base
+            try:
+                from src.rag_indexer import index_report as _index_report
+                _index_report(report_dict, executive_summary=exec_summary)
+            except Exception:
+                pass  # silently skip if chromadb not installed
+
             # Executive summary
             st.markdown("**Executive Summary**")
             st.markdown(
@@ -562,3 +569,119 @@ with tab6:
                                        mime="application/pdf", key="dl_pdf")
                 except ImportError:
                     st.caption("Install reportlab for PDF export: pip install reportlab")
+
+
+# ── HISTORY (RAG) ────────────────────────────────────────────────────────────────────
+with tab7:
+    st.markdown("#### Historical RCA Query")
+    st.caption(
+        "Ask natural-language questions about past anomaly events. "
+        "Reports are indexed automatically after each RCA analysis."
+    )
+
+    # ── Check if RAG is available ─────────────────────────────────────────────
+    try:
+        from src.rag_indexer import _import_deps
+        _import_deps()  # forces deep import check
+        from src.rag_query import query as rag_query, get_index_stats
+        from src.rag_indexer import list_indexed_reports, clear_index
+        rag_available = True
+    except Exception:
+        rag_available = False
+
+    if not rag_available:
+        st.error(
+            "RAG dependencies not installed. Run:\n"
+            "```\npip install chromadb sentence-transformers\n```"
+        )
+    else:
+        stats = get_index_stats()
+        n_docs = stats["total_documents"]
+
+        # ── Index stats bar ───────────────────────────────────────────────────
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Reports Indexed", n_docs)
+        s2.metric("Index Location", "data/rag_index")
+        s3.metric("Embed Model", "all-MiniLM-L6-v2")
+        st.divider()
+
+        if n_docs == 0:
+            st.info(
+                "The knowledge base is empty.  "
+                "Go to the **RCA REPORT** tab, run an analysis, and it will be "
+                "automatically indexed here."
+            )
+        else:
+            # ── Chat interface ────────────────────────────────────────────────
+            if "rag_messages" not in st.session_state:
+                st.session_state["rag_messages"] = []
+
+            # Display existing conversation
+            for msg in st.session_state["rag_messages"]:
+                role_color = "#00e5ff" if msg["role"] == "user" else "#7b68ee"
+                role_label = "YOU" if msg["role"] == "user" else "METRICSLEUTH"
+                st.markdown(
+                    f'<div style="margin-bottom:.8rem;">'
+                    f'<span style="font-family:JetBrains Mono;font-size:.65rem;'
+                    f'color:{role_color};letter-spacing:2px;">{role_label}</span>'
+                    f'<div style="background:#0d1327;border:1px solid #1e2d52;'
+                    f'border-radius:8px;padding:.9rem;margin-top:.25rem;'
+                    f'font-size:.87rem;line-height:1.65;color:#c9d1e3;">'
+                    f'{msg["content"]}'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+                # Show sources if present
+                if msg.get("sources"):
+                    with st.expander("Sources", expanded=False):
+                        for i, src in enumerate(msg["sources"], 1):
+                            st.markdown(
+                                f'<span style="font-size:.78rem;color:#3a4a6b;">'
+                                f'**[{i}]** Date: `{src.get("anomaly_date","N/A")}` &nbsp;|&nbsp; '
+                                f'Metric: `{src.get("primary_metric","N/A")}`</span>',
+                                unsafe_allow_html=True,
+                            )
+
+            # Input box
+            question = st.chat_input(
+                "Ask about past anomalies... e.g. 'Did we see a similar traffic drop before?'"
+            )
+            if question:
+                # Add user message
+                st.session_state["rag_messages"].append(
+                    {"role": "user", "content": question}
+                )
+                with st.spinner("Searching knowledge base..."):
+                    result = rag_query(question)
+
+                st.session_state["rag_messages"].append({
+                    "role":    "assistant",
+                    "content": result.answer,
+                    "sources": result.sources,
+                })
+                st.rerun()
+
+            # Clear chat
+            if st.session_state["rag_messages"]:
+                if st.button("Clear conversation", key="clear_chat"):
+                    st.session_state["rag_messages"] = []
+                    st.rerun()
+
+        st.divider()
+
+        # ── Indexed reports browser ───────────────────────────────────────────
+        with st.expander("Browse indexed reports"):
+            indexed = list_indexed_reports()
+            if indexed:
+                import pandas as _pd
+                idx_df = _pd.DataFrame(indexed)
+                st.dataframe(idx_df, use_container_width=True)
+            else:
+                st.info("No reports indexed yet.")
+
+            if indexed and st.button("Clear entire index", key="clear_idx",
+                                     help="Removes all indexed documents permanently"):
+                clear_index()
+                st.warning("Index cleared.")
+                st.rerun()
+
