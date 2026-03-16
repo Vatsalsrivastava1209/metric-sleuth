@@ -4,6 +4,8 @@
 
 MetricSleuth automatically detects anomalies in time-series KPIs (revenue, traffic, conversion rate) and traces them back to their likely root causes using statistical analysis and a rule-based hypothesis engine — all surfaced in an interactive Streamlit dashboard.
 
+Live Website : https://metric-sleuth-6aj7nhdpg2uu8ctqyizwfg.streamlit.app/
+
 ---
 
 ## Features
