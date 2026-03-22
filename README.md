@@ -118,8 +118,8 @@ python src/report_generator.py
 
 - **Python 3.10+**
 - `pandas`, `numpy`, `scipy`, `scikit-learn`
-- `plotly` — interactive charts
-- `streamlit` — dashboard framework
+- `plotly` - interactive charts
+- `streamlit` - dashboard framework
 
 ---
 
