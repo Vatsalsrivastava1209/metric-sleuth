@@ -26,3 +26,23 @@ requests>=2.31.0
 # RAG / vector store
 chromadb>=0.5.0
 sentence-transformers>=3.0.0
+
+# ── SaaS additions ────────────────────────────────────────────────────────────
+
+# Supabase (auth + database)
+supabase>=2.4.0
+
+# Stripe billing
+stripe>=8.0.0
+
+# Webhook server
+flask>=3.0.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# Database connectors
+psycopg2-binary>=2.9.0          # PostgreSQL
+mysql-connector-python>=8.3.0   # MySQL / MariaDB
+google-cloud-bigquery>=3.17.0   # BigQuery
+pyarrow>=15.0.0                 # Required by BigQuery client

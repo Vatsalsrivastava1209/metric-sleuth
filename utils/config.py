@@ -63,8 +63,4 @@ REQUIRED_COLUMNS: list[str] = [
     "conversion_rate", "region", "device", "traffic_source",
 ]
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
-# Credentials are read from .streamlit/secrets.toml in production.
-# Set APP_USERNAME / APP_PASSWORD here only for local dev (never commit secrets).
-APP_USERNAME: str = "admin"
-APP_PASSWORD: str = "metricsleuth"   # change before deploying
+
