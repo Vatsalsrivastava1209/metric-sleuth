@@ -14,18 +14,22 @@ reportlab>=4.0.0
 
 # Time-series anomaly detection & forecasting
 prophet>=1.1.5
+ruptures>=1.1.9   # changepoint / level-shift detection (PELT algorithm)
 
 # Scheduling & alerts
 APScheduler>=3.10.0
 requests>=2.31.0
 
-# LLM backends (install the one you use)
-# google-generativeai>=0.7.0    # for Gemini
-# openai>=1.30.0                 # for OpenAI
+# LLM backends — both installed so the user can configure either via LLM_BACKEND env var.
+# Remove the one you don't use to reduce image size.
+google-generativeai>=0.7.0   # for Gemini (LLM + text-embedding-004)
+openai>=1.30.0               # for OpenAI (LLM + text-embedding-3-small)
 
-# RAG / vector store
-chromadb>=0.5.0
-sentence-transformers>=3.0.0
+# ── RAG embeddings (pgvector — replaces ChromaDB) ────────────────────────────
+# Embeddings are now generated via the OpenAI or Google API and stored in
+# Supabase pgvector. The chromadb + sentence-transformers packages are no
+# longer required and have been removed.
+# Set EMBED_BACKEND=openai or EMBED_BACKEND=gemini in your .env file.
 
 # ── SaaS additions ────────────────────────────────────────────────────────────
 
@@ -35,14 +39,15 @@ supabase>=2.4.0
 # Stripe billing
 stripe>=8.0.0
 
-# Webhook server
-flask>=3.0.0
-
 # Environment variable loading
 python-dotenv>=1.0.0
+cryptography>=41.0.0
 
 # Database connectors
 psycopg2-binary>=2.9.0          # PostgreSQL
 mysql-connector-python>=8.3.0   # MySQL / MariaDB
 google-cloud-bigquery>=3.17.0   # BigQuery
-pyarrow>=15.0.0                 # Required by BigQuery client
+pyarrow>=15.0.0                 # Required by BigQuery client and PyArrow Pandas backend
+
+# Async HTTP client — used for streaming file uploads to Supabase Storage (P2-A fix)
+httpx>=0.27.0

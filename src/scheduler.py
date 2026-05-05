@@ -97,12 +97,14 @@ def _format_slack_payload(anomalies_df: pd.DataFrame, data_path: str) -> dict:
 def send_email_alert(
     anomalies_df: pd.DataFrame,
     data_path: str,
+    to_email: str | None = None,
 ) -> bool:
     """Send an anomaly alert via SMTP email.
 
     Returns ``True`` on success, ``False`` on failure.
     """
-    if not ALERT_EMAIL_ENABLED:
+    recipient = (to_email or ALERT_EMAIL_TO or "").strip()
+    if not ALERT_EMAIL_ENABLED or not recipient:
         logger.info("Email alerts are disabled.")
         return False
 
@@ -111,14 +113,14 @@ def send_email_alert(
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"MetricSleuth Alert — {len(anomalies_df)} anomalies detected"
         msg["From"]    = ALERT_EMAIL_FROM
-        msg["To"]      = ALERT_EMAIL_TO
+        msg["To"]      = recipient
         msg.attach(MIMEText(body, "plain"))
 
         with smtplib.SMTP_SSL(ALERT_EMAIL_SMTP_HOST, ALERT_EMAIL_SMTP_PORT) as server:
             server.login(ALERT_EMAIL_FROM, ALERT_EMAIL_PASSWORD)
-            server.sendmail(ALERT_EMAIL_FROM, ALERT_EMAIL_TO.split(","), msg.as_string())
+            server.sendmail(ALERT_EMAIL_FROM, recipient.split(","), msg.as_string())
 
-        logger.info("Email alert sent to %s", ALERT_EMAIL_TO)
+        logger.info("Email alert sent to %s", recipient)
         return True
     except Exception as exc:
         logger.error("Failed to send email alert: %s", exc)
@@ -128,19 +130,21 @@ def send_email_alert(
 def send_slack_alert(
     anomalies_df: pd.DataFrame,
     data_path: str,
+    webhook_url: str | None = None,
 ) -> bool:
     """Post an anomaly alert to a Slack channel via Incoming Webhook.
 
     Returns ``True`` on success, ``False`` on failure.
     """
-    if not ALERT_SLACK_ENABLED or not ALERT_SLACK_WEBHOOK_URL:
+    target_webhook = (webhook_url or ALERT_SLACK_WEBHOOK_URL or "").strip()
+    if not ALERT_SLACK_ENABLED or not target_webhook:
         logger.info("Slack alerts are disabled or webhook URL not set.")
         return False
 
     try:
         payload = _format_slack_payload(anomalies_df, data_path)
         response = requests.post(
-            ALERT_SLACK_WEBHOOK_URL,
+            target_webhook,
             data=json.dumps(payload),
             headers={"Content-Type": "application/json"},
             timeout=10,
@@ -156,72 +160,159 @@ def send_slack_alert(
 # ── Core monitoring job ───────────────────────────────────────────────────────
 
 def run_monitoring_job(
-    data_path: str,
+    user_id: str,
+    dataset_id: str,
+    metric: str = "revenue",
     on_anomaly: Callable[[pd.DataFrame], None] | None = None,
 ) -> pd.DataFrame:
-    """Load the latest dataset and run anomaly detection.
+    """Load the latest dataset for a user and run anomaly detection.
+
+    P1-C Fix: The previous implementation took a `data_path` (local CSV file)
+    which made it incompatible with multi-tenant SaaS operation — every Business
+    tier user's scheduled job would read the same sample CSV.
+
+    The new implementation:
+    1. Accepts `user_id` + `dataset_id` to identify the correct tenant dataset.
+    2. Loads the dataset from Supabase via the connector infrastructure in src/db.py.
+    3. Falls back to loading from a pre-registered dataset record.
+    4. Sends alerts using the user-specific Slack/email config from their profile.
 
     Parameters
     ----------
-    data_path:
-        Path to the CSV dataset to monitor.
+    user_id:
+        The UUID of the tenant whose dataset to monitor.
+    dataset_id:
+        The UUID of the registered dataset in the `datasets` table.
+    metric:
+        The primary metric column to check for anomalies.
     on_anomaly:
-        Optional callback invoked with the anomalies DataFrame when anomalies
-        are found.  Defaults to sending email + Slack alerts.
+        Optional callback invoked with the anomaly DataFrame.
+        Defaults to sending email + Slack via the user's profile config.
 
     Returns
     -------
     pd.DataFrame
         Detected anomalies (empty DataFrame if none found).
     """
-    from src.data_loader import load_data
+    from src.db import get_profile
     from src.anomaly_detection import detect_anomalies
+    from src.data_loader import load_data
 
-    logger.info("Monitoring job started — %s", datetime.now().isoformat())
+    logger.info(
+        "Monitoring job started for user=%s dataset=%s metric=%s — %s",
+        user_id, dataset_id, metric, datetime.now().isoformat(),
+    )
 
+    # Load the user's dataset. Connectors (Postgres, MySQL, BigQuery, CSV)
+    # are registered in the datasets table; we load via the connector factory.
     try:
-        df = load_data(data_path)
+        from src.connectors import load_dataset_from_connector
+        df = load_dataset_from_connector(dataset_id, user_id=user_id)
     except Exception as exc:
-        logger.error("Failed to load dataset: %s", exc)
+        logger.error(
+            "Failed to load dataset %s for user %s: %s", dataset_id, user_id, exc
+        )
         return pd.DataFrame()
 
-    anomalies = detect_anomalies(df, metrics=ANOMALY_METRICS)
+    anomalies = detect_anomalies(df, metrics=[metric])
 
     if anomalies.empty:
-        logger.info("No anomalies detected — system healthy.")
+        logger.info("No anomalies detected for user=%s dataset=%s — system healthy.", user_id, dataset_id)
         return anomalies
 
-    logger.warning("%d anomal%s detected!", len(anomalies), "y" if len(anomalies)==1 else "ies")
+    logger.warning(
+        "%d anomal%s detected for user=%s dataset=%s!",
+        len(anomalies), "y" if len(anomalies) == 1 else "ies", user_id, dataset_id,
+    )
 
     if on_anomaly is not None:
         on_anomaly(anomalies)
     else:
-        # Default: fire both email and Slack
-        send_email_alert(anomalies, data_path)
-        send_slack_alert(anomalies, data_path)
+        # Read the user's configured alert destinations from their profile.
+        try:
+            profile = get_profile(user_id)
+        except Exception:
+            profile = {}
+
+        data_ref = f"dataset:{dataset_id} (user:{user_id})"
+        send_email_alert(anomalies, data_ref, to_email=profile.get("alert_email"))
+        send_slack_alert(
+            anomalies,
+            data_ref,
+            webhook_url=profile.get("slack_webhook_url"),
+        )
 
     return anomalies
 
 
-# ── Scheduler setup ───────────────────────────────────────────────────────────
+# ── Celery Beat Task (multi-tenant, per-user scheduling) ─────────────────────
+
+try:
+    from api.worker import celery_app as _celery_app
+
+    @_celery_app.task(name="src.scheduler.schedule_user_monitoring")
+    def schedule_user_monitoring(
+        user_id: str,
+        dataset_id: str,
+        metric: str = "revenue",
+    ) -> dict:
+        """Celery task wrapper for per-user scheduled monitoring.
+
+        P1-C Fix: Each Business-tier user's schedule triggers this Celery task
+        independently with their own user_id and dataset_id. The task is registered
+        in celery beat's schedule via the Supabase `scheduled_jobs` table (or via
+        Celery Beat's database scheduler in production).
+
+        Anomaly results trigger the full RCA pipeline via another Celery task
+        if anomalies are found, rather than re-running the analysis inline.
+        """
+        logger.info(
+            "Celery Beat: scheduled monitoring task for user=%s dataset=%s",
+            user_id, dataset_id,
+        )
+        anomalies = run_monitoring_job(
+            user_id=user_id,
+            dataset_id=dataset_id,
+            metric=metric,
+        )
+        return {
+            "user_id":      user_id,
+            "dataset_id":   dataset_id,
+            "n_anomalies":  len(anomalies),
+        }
+
+except ImportError:
+    # Celery not available (e.g. in standalone scheduler mode or tests).
+    logger.debug("Celery not available — schedule_user_monitoring Celery task not registered.")
+
+
+# ── Legacy standalone APScheduler (local dev / backward compat) ──────────
 
 def start_scheduler(
-    data_path: str = "data/sample_ecommerce.csv",
+    user_id: str,
+    dataset_id: str,
+    metric: str = "revenue",
     interval_hours: float | None = None,
     block: bool = True,
 ) -> None:
-    """Start the APScheduler background scheduler.
+    """Start the APScheduler background scheduler for a single user dataset.
+
+    P1-C Fix: Now accepts user_id + dataset_id instead of a local file path.
+    Suitable for local development. In production, use the Celery Beat task
+    `schedule_user_monitoring` which runs per-user jobs independently.
 
     Parameters
     ----------
-    data_path:
-        Path to the dataset to monitor.
+    user_id:
+        The UUID of the tenant to monitor.
+    dataset_id:
+        The UUID of the dataset in the `datasets` table.
+    metric:
+        Metric column to monitor.
     interval_hours:
-        How often to run the monitoring job (hours). Falls back to
-        ``config.SCHEDULER_INTERVAL_HOURS``.
+        How often to run (hours). Falls back to ``config.SCHEDULER_INTERVAL_HOURS``.
     block:
-        If ``True`` the call blocks (suitable for standalone execution).
-        Pass ``False`` if embedding in another process (e.g. Streamlit).
+        If ``True`` the call blocks. Pass ``False`` for embedding.
     """
     try:
         from apscheduler.schedulers.blocking import BlockingScheduler
@@ -239,12 +330,14 @@ def start_scheduler(
         run_monitoring_job,
         trigger="interval",
         hours=hours,
-        args=[data_path],
-        next_run_time=datetime.now(),   # run immediately on start
+        kwargs={"user_id": user_id, "dataset_id": dataset_id, "metric": metric},
+        next_run_time=datetime.now(),
         id="metric_monitor",
-        name="MetricSleuth Daily Monitor",
+        name=f"MetricSleuth Monitor — user={user_id}",
         misfire_grace_time=3600,
     )
+
+    data_path = dataset_id
 
     logger.info(
         "Scheduler started — monitoring '%s' every %.1f hour(s).", data_path, hours
@@ -257,10 +350,24 @@ def start_scheduler(
 
 # ── Standalone entry-point ────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import argparse
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     )
-    start_scheduler(data_path="data/sample_ecommerce.csv", block=True)
+    parser = argparse.ArgumentParser(description="Run the local MetricSleuth scheduler.")
+    parser.add_argument("--user-id", required=True, help="Supabase user UUID to monitor.")
+    parser.add_argument("--dataset-id", required=True, help="Dataset UUID to monitor.")
+    parser.add_argument("--metric", default="revenue", help="Canonical metric column to monitor.")
+    parser.add_argument("--interval-hours", type=float, default=None, help="Polling interval in hours.")
+    args = parser.parse_args()
+
+    start_scheduler(
+        user_id=args.user_id,
+        dataset_id=args.dataset_id,
+        metric=args.metric,
+        interval_hours=args.interval_hours,
+        block=True,
+    )

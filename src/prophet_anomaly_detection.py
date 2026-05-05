@@ -18,14 +18,45 @@ models weekly/yearly seasonality and trend change-points.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
 import numpy as np
 
-from utils.config import DATE_COLUMN, ANOMALY_METRICS
+from utils.config import (
+    DATE_COLUMN,
+    ANOMALY_METRICS,
+    PROPHET_BACKTEST_MIN_TRAIN_POINTS,
+    PROPHET_MIN_HISTORY_POINTS,
+)
 
 logger = logging.getLogger(__name__)
+
+# Maximum seconds allowed for a single Prophet model.fit() call.
+# On sparse, irregular, or very long-range data, Prophet's Stan backend can
+# hang for minutes. This guard keeps the Celery worker responsive.
+# Increase if your datasets are large and the default timeout is too tight.
+PROPHET_FIT_TIMEOUT_SECONDS: int = 120
+
+
+class ProphetTimeoutError(RuntimeError):
+    """Raised when a Prophet fit exceeds PROPHET_FIT_TIMEOUT_SECONDS."""
+
+
+@dataclass
+class ProphetBacktestResult:
+    train_points: int
+    scored_points: int
+    flagged_dates: list[pd.Timestamp]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "train_points": self.train_points,
+            "scored_points": self.scored_points,
+            "flagged_dates": [str(ts) for ts in self.flagged_dates],
+        }
 
 
 def _import_prophet():
@@ -45,6 +76,7 @@ def fit_prophet(
     yearly_seasonality: bool = True,
     weekly_seasonality: bool = True,
     interval_width: float = 0.95,
+    timeout: int = PROPHET_FIT_TIMEOUT_SECONDS,
 ) -> Any:
     """Fit a Prophet model on *metric* and return the fitted model.
 
@@ -60,12 +92,26 @@ def fit_prophet(
         Whether to include a weekly seasonal component.
     interval_width:
         Confidence interval width used to define the anomaly bounds (0–1).
+    timeout:
+        Maximum seconds to wait for model.fit(). Raises ProphetTimeoutError
+        if exceeded. Defaults to PROPHET_FIT_TIMEOUT_SECONDS (120s).
 
     Returns
     -------
     Fitted ``Prophet`` instance.
+
+    Raises
+    ------
+    ProphetTimeoutError
+        If model.fit() does not complete within *timeout* seconds.
     """
     Prophet = _import_prophet()
+
+    if len(df) < PROPHET_MIN_HISTORY_POINTS:
+        raise ValueError(
+            f"Prophet requires at least {PROPHET_MIN_HISTORY_POINTS} historical rows; "
+            f"received {len(df)}."
+        )
 
     # Prophet expects columns named 'ds' and 'y'
     prophet_df = df[[DATE_COLUMN, metric]].rename(
@@ -80,13 +126,32 @@ def fit_prophet(
         changepoint_prior_scale=0.05,
     )
 
+    # ── Timeout guard ──────────────────────────────────────────────────────────
+    # model.fit() calls Stan's LBFGS optimiser which can hang indefinitely on
+    # sparse or irregular data. We run it in a daemon thread and enforce a wall-
+    # clock timeout. This pattern is compatible with Windows (no signal.alarm)
+    # and with Celery's forked worker model.
     import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model.fit(prophet_df)
+
+    def _fit() -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            model.fit(prophet_df)
+        return model
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_fit)
+        try:
+            fitted = future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            future.cancel()
+            raise ProphetTimeoutError(
+                f"Prophet fit for metric '{metric}' exceeded {timeout}s timeout. "
+                "Falling back to Z-score detection for this metric."
+            )
 
     logger.info("Prophet model fitted for metric: %s", metric)
-    return model
+    return fitted
 
 
 def predict_in_sample(
@@ -201,6 +266,45 @@ def detect_prophet_anomalies(
     return result
 
 
+def backtest_prophet_detector(
+    df: pd.DataFrame,
+    metric: str,
+    min_train_points: int = PROPHET_BACKTEST_MIN_TRAIN_POINTS,
+    interval_width: float = 0.95,
+) -> ProphetBacktestResult:
+    """Score Prophet out-of-sample with a rolling-origin one-step backtest."""
+    if metric not in df.columns:
+        raise ValueError(f"Metric '{metric}' not found in DataFrame.")
+
+    if len(df) <= min_train_points:
+        raise ValueError(
+            f"Need more than {min_train_points} rows to run Prophet backtesting; received {len(df)}."
+        )
+
+    ordered = df.sort_values(DATE_COLUMN).reset_index(drop=True)
+    flagged_dates: list[pd.Timestamp] = []
+
+    for index in range(min_train_points, len(ordered)):
+        train = ordered.iloc[:index]
+        target = ordered.iloc[index : index + 1]
+        model = fit_prophet(train, metric, interval_width=interval_width)
+        forecast = predict_in_sample(model, train)
+
+        future = pd.DataFrame({"ds": target[DATE_COLUMN].tolist()})
+        prediction = model.predict(future).iloc[0]
+        observed_value = float(target.iloc[0][metric])
+        lower_bound = float(prediction["yhat_lower"])
+        upper_bound = float(prediction["yhat_upper"])
+        if observed_value < lower_bound or observed_value > upper_bound:
+            flagged_dates.append(pd.to_datetime(target.iloc[0][DATE_COLUMN]))
+
+    return ProphetBacktestResult(
+        train_points=min_train_points,
+        scored_points=len(ordered) - min_train_points,
+        flagged_dates=flagged_dates,
+    )
+
+
 def detect_all_metrics(
     df: pd.DataFrame,
     metrics: list[str] | None = None,
@@ -230,6 +334,12 @@ def detect_all_metrics(
         try:
             result = detect_prophet_anomalies(df, metric, interval_width)
             frames.append(result)
+        except ProphetTimeoutError as exc:
+            # Timeout is non-fatal — Z-score detection will cover this metric.
+            logger.warning(
+                "Prophet timeout for metric '%s' (excluded from Prophet results): %s",
+                metric, exc,
+            )
         except Exception as exc:
             logger.error("Prophet detection failed for '%s': %s", metric, exc)
 

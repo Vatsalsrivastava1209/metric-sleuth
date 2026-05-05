@@ -4,16 +4,30 @@ contribution_analysis.py
 Estimates the proportional contribution of each factor (traffic drop,
 conversion rate drop, etc.) to an observed revenue decline.
 
-Method
-------
-We use a simple multiplicative decomposition:
+Method — Elasticity-Weighted Attribution
+-----------------------------------------
+Revenue follows a multiplicative identity:
 
     revenue = traffic × conversion_rate × avg_order_value
 
-The change in revenue can therefore be approximately attributed by
-computing how much each factor changed relative to the baseline and
-weighting those changes by their elasticity (coefficient of variation
-w.r.t. revenue over the full history).
+A naive "percentage change" decomposition treats all factors equally, which
+is statistically incorrect:  a 5% traffic drop has a different revenue impact
+than a 5% CVR drop because their historical variance contributions differ.
+
+We weight each factor's contribution by its **revenue elasticity**: the ratio
+of the factor's coefficient of variation (CV = std/mean) to the sum of all
+factors' CVs over the full history.  This reflects how much of revenue's
+historical variance is explained by each factor — a principled, data-driven
+attribution weight.
+
+Elasticity weight formula:
+    w_i = CV_i / Σ CV_j      (CV = historical std / historical mean)
+
+Final contribution:
+    contrib_i = |Δfactor_i%| × w_i / Σ (|Δfactor_j%| × w_j)  × 100
+
+This is a practical approximation to the Shapley value for the
+multiplicative decomposition problem, without the O(2^K) Shapley computation.
 """
 
 from __future__ import annotations
@@ -80,6 +94,12 @@ def compute_contributions(
 ) -> pd.DataFrame:
     """Estimate each factor's contribution to the *primary_metric* change.
 
+    Uses elasticity-weighted attribution: each factor is weighted by its
+    historical coefficient of variation (CV = std/mean), which reflects
+    how much of revenue's total variance it historically explains.
+    This is more accurate than equal-weight normalization because a 5%
+    traffic drop does not have the same revenue impact as a 5% CVR drop.
+
     Parameters
     ----------
     df:
@@ -108,11 +128,10 @@ def compute_contributions(
         logger.warning("No data for anomaly date %s", anomaly_date)
         return pd.DataFrame()
 
-    records: list[dict] = []
-    total_drop_magnitude = 0.0
+    # ── Pass 1: raw changes + historical elasticity weights ──────────────────
+    raw: list[tuple[str, float, float, float, float, float]] = []
+    total_elasticity_weighted_change = 0.0
 
-    # First pass: compute raw changes
-    raw: list[tuple[str, float, float, float, float]] = []
     for factor in factors:
         if factor not in df.columns:
             logger.warning("Factor '%s' not in DataFrame — skipping.", factor)
@@ -122,17 +141,33 @@ def compute_contributions(
         anomaly_val = float(anomaly_rows[factor].mean())
         abs_change = anomaly_val - baseline
         pct_change = (abs_change / baseline * 100) if baseline != 0 else 0.0
-        raw.append((factor, baseline, anomaly_val, abs_change, pct_change))
-        total_drop_magnitude += abs(abs_change / baseline) if baseline != 0 else 0
 
-    # Second pass: normalise contributions
-    for factor, baseline, anomaly_val, abs_change, pct_change in raw:
-        local_magnitude = abs(abs_change / baseline) if baseline != 0 else 0
-        contribution = (
-            (local_magnitude / total_drop_magnitude * 100)
-            if total_drop_magnitude > 0
-            else 0.0
-        )
+        # Historical elasticity: coefficient of variation over the full series
+        # CV = std / mean — measures how volatile this factor is historically.
+        # Factors with higher CV have historically driven more revenue variance
+        # and therefore deserve a higher weight in the attribution.
+        series = df[factor].dropna().astype(float)
+        hist_mean = float(series.mean())
+        hist_std  = float(series.std())
+        cv = (hist_std / abs(hist_mean)) if hist_mean != 0 else 0.0
+
+        # Weighted change magnitude: |%change| × elasticity_weight
+        # We use absolute pct_change because we care about the magnitude of the
+        # change, not its sign (sign is captured in the direction field).
+        weighted_magnitude = abs(pct_change) * cv
+        total_elasticity_weighted_change += weighted_magnitude
+
+        raw.append((factor, baseline, anomaly_val, abs_change, pct_change, weighted_magnitude))
+
+    # ── Pass 2: normalise elasticity-weighted contributions ──────────────────
+    records: list[dict] = []
+    for factor, baseline, anomaly_val, abs_change, pct_change, weighted_mag in raw:
+        if total_elasticity_weighted_change > 0:
+            contribution = weighted_mag / total_elasticity_weighted_change * 100
+        else:
+            # Fallback: equal weights when all factors have zero CV
+            contribution = 100.0 / len(raw) if raw else 0.0
+
         records.append(
             ContributionResult(
                 factor=factor,

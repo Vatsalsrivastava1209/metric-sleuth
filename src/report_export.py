@@ -223,7 +223,7 @@ def export_report_pdf(
     # ── Cover ─────────────────────────────────────────────────────────────────
     story.append(Spacer(1, 1.5*cm))
     story.append(Paragraph("MetricSleuth", styles["title"]))
-    story.append(Paragraph("Root Cause Analysis Report", styles["subtitle"]))
+    story.append(Paragraph("Metric Investigation Report", styles["subtitle"]))
     story.append(Spacer(1, 0.4*cm))
 
     meta_rows = [
@@ -238,7 +238,7 @@ def export_report_pdf(
     # ── Executive Summary ─────────────────────────────────────────────────────
     section("Executive Summary")
     summary_text = executive_summary or (
-        "An automated Root Cause Analysis was performed. "
+        "An automated metric investigation was performed. "
         "Please refer to the sections below for detailed findings."
     )
     story.append(Paragraph(summary_text, styles["body"]))
@@ -300,7 +300,7 @@ def export_report_pdf(
     hr()
 
     # ── Hypotheses ────────────────────────────────────────────────────────────
-    section("Root Cause Hypotheses")
+    section("Likely Drivers")
     for h in report.get("hypotheses", []):
         story.append(Paragraph(
             f"<b>[{h['id']}] {h['title']}</b>  —  Confidence: {h['confidence']:.0%}",

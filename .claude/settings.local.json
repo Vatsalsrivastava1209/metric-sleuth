@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tests/fixtures/generate_fixtures.py)",
+      "Bash(python -m pytest tests/test_anomaly_backtest.py -v)",
+      "Bash(python -c ' *)",
+      "Bash(python -m uvicorn api.main:app --reload --port 8000)",
+      "Bash(python -m uvicorn api.main:app --port 8000)",
+      "Bash(npm run *)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"Frontend HTTP status: %{http_code}\")",
+      "Bash(curl -s http://localhost:8000/docs -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl -s \"http://localhost:8000/openapi.json\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); paths=list\\(d['paths'].keys\\(\\)\\); [print\\(p\\) for p in paths if 'portfolio' in p or 'health' in p]\")",
+      "Bash(curl -s http://localhost:3002 -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl *)",
+      "Bash(taskkill *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\12vat\\\\metric-sleuth\\\\frontend\\\\src\\\\app\\\\dashboard\" -Recurse -File)",
+      "Bash(Select-Object FullName)",
+      "PowerShell(netstat *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\12vat\\\\metric-sleuth\\\\frontend\\\\src\" -Recurse -Name)",
+      "Bash(Sort-Object)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\12vat\\\\metric-sleuth\\\\frontend\\\\src\" -Recurse | Sort-Object FullName | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\12vat\\\\metric-sleuth\\\\frontend\\\\\"\\), \"\" })",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\12vat\\\\metric-sleuth\\\\frontend\" -Recurse -Include \"tailwind.config.*\", \"next.config.*\", \"package.json\")"
+    ]
+  }
+}

@@ -3,6 +3,14 @@ correlation_analysis.py
 =======================
 Computes pairwise Pearson correlations between business metrics and
 identifies which relationships are statistically strong.
+
+Multiple-Testing Correction
+---------------------------
+When testing K pairs from the same dataset, the probability of at least
+one spurious "significant" result grows with K. To control the family-wise
+error rate (FWER) we apply a **Bonferroni correction** to the raw p-values
+before classifying a correlation as strong. This prevents the H-CORRELATION
+hypothesis from firing on random coincidences in short time-series datasets.
 """
 
 from __future__ import annotations
@@ -89,8 +97,14 @@ def analyse_correlations(
     df: pd.DataFrame,
     pairs: list[tuple[str, str]] | None = None,
     threshold: float = STRONG_CORRELATION_THRESHOLD,
+    alpha: float = 0.05,
 ) -> pd.DataFrame:
     """Run correlation analysis over all configured metric pairs.
+
+    Multiple-testing correction is applied using the Bonferroni method so
+    that ``is_strong`` reflects statistical significance after correcting for
+    the number of simultaneous tests.  This prevents the H-CORRELATION hypothesis
+    from firing on random noise in short time-series.
 
     Parameters
     ----------
@@ -99,17 +113,21 @@ def analyse_correlations(
     pairs:
         List of ``(metric_a, metric_b)`` tuples.  Defaults to config pairs.
     threshold:
-        Strong-correlation threshold.
+        Strong-correlation threshold for |r|.
+    alpha:
+        Family-wise significance level before Bonferroni correction (default 0.05).
 
     Returns
     -------
     pd.DataFrame
         One row per pair with columns from :class:`CorrelationResult`.
+        ``is_strong`` is True only when *both* |r| >= threshold AND the
+        Bonferroni-corrected p-value < alpha.
     """
     if pairs is None:
         pairs = CORRELATION_PAIRS
 
-    results: list[dict] = []
+    raw_results: list[dict] = []
     for metric_a, metric_b in pairs:
         if metric_a not in df.columns or metric_b not in df.columns:
             logger.warning(
@@ -117,13 +135,38 @@ def analyse_correlations(
             )
             continue
         cr = compute_correlation(df, metric_a, metric_b, threshold)
-        results.append(cr.to_dict())
+        raw_results.append(cr.to_dict())
         logger.info(
-            "r(%s, %s) = %.4f  p=%.4f  strong=%s",
-            metric_a, metric_b, cr.pearson_r, cr.p_value, cr.is_strong,
+            "r(%s, %s) = %.4f  p=%.4f  (uncorrected)",
+            metric_a, metric_b, cr.pearson_r, cr.p_value,
         )
 
-    return pd.DataFrame(results)
+    if not raw_results:
+        return pd.DataFrame()
+
+    # ── Bonferroni multiple-testing correction ────────────────────────────────
+    # Corrected α = α / K  where K is the number of tests performed.
+    # We apply this manually (no extra dependency) — equivalent to
+    # multipletests(p_values, method='bonferroni') from statsmodels.
+    k = len(raw_results)
+    corrected_alpha = alpha / k  # Bonferroni threshold
+
+    for row in raw_results:
+        raw_p = row["p_value"]
+        corrected_p = min(raw_p * k, 1.0)   # Bonferroni-corrected p-value
+        row["corrected_p_value"] = round(corrected_p, 6)
+        # is_strong requires BOTH effect size AND statistical significance after correction
+        row["is_strong"] = (
+            abs(row["pearson_r"]) >= threshold
+            and corrected_p < alpha
+        )
+        logger.info(
+            "r(%s, %s) corrected_p=%.4f  bonferroni_threshold=%.4f  is_strong=%s",
+            row["metric_a"], row["metric_b"],
+            corrected_p, corrected_alpha, row["is_strong"],
+        )
+
+    return pd.DataFrame(raw_results)
 
 
 def get_strong_correlators(

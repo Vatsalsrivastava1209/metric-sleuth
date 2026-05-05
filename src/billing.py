@@ -7,16 +7,11 @@ Tier hierarchy:  free < pro < business
 
 Usage
 -----
-    from src.billing import gate, check_access, PLANS
+    from src.billing import check_access, PLANS
 
-    # In a Streamlit page:
-    if gate("pdf_export"):
+    if check_access("pdf_export", user_tier):
         # user has access — render the feature
         ...
-
-    # Or check without rendering:
-    if check_access("db_connectors"):
-        show_db_connector_ui()
 """
 
 from __future__ import annotations
@@ -25,20 +20,24 @@ import logging
 import os
 from typing import Any
 
-import streamlit as st
-
 logger = logging.getLogger(__name__)
+
+
+def _secret_or_env(name: str, default: str = "") -> str:
+    """Read from environment variables."""
+    return os.getenv(name, default)
 
 
 # ── Plan definitions ──────────────────────────────────────────────────────────
 
 PLANS: dict[str, dict[str, Any]] = {
     "free": {
-        "label":        "Free",
+        "label":        "Starter",
         "price_monthly": 0,
         "color":        "#3a4a6b",
         "features": {
-            "max_datasets":       1,
+            "max_datasets":       3,
+            "max_workspaces":     3,
             "date_history_days":  30,
             "csv_upload":         True,
             "z_score_detection":  True,
@@ -58,11 +57,12 @@ PLANS: dict[str, dict[str, Any]] = {
         },
     },
     "pro": {
-        "label":        "Pro",
-        "price_monthly": 29,
+        "label":        "Growth",
+        "price_monthly": 499,
         "color":        "#00e5ff",
         "features": {
-            "max_datasets":       5,
+            "max_datasets":       15,
+            "max_workspaces":     15,
             "date_history_days":  365,
             "csv_upload":         True,
             "z_score_detection":  True,
@@ -82,11 +82,12 @@ PLANS: dict[str, dict[str, Any]] = {
         },
     },
     "business": {
-        "label":        "Business",
-        "price_monthly": 99,
+        "label":        "Portfolio",
+        "price_monthly": 1500,
         "color":        "#7b68ee",
         "features": {
-            "max_datasets":       -1,   # unlimited
+            "max_datasets":       50,
+            "max_workspaces":     -1,   # unlimited
             "date_history_days":  -1,   # unlimited
             "csv_upload":         True,
             "z_score_detection":  True,
@@ -109,32 +110,26 @@ PLANS: dict[str, dict[str, Any]] = {
 
 # Human-readable feature labels for the upgrade prompt
 FEATURE_LABELS: dict[str, str] = {
-    "pdf_export":           "PDF Report Export",
-    "rag_history":          "Historical RCA Query (AI Memory)",
-    "prophet_detection":    "Prophet Anomaly Detection",
-    "forecast":             "30-Day Forecasting",
-    "llm_summary":          "AI Executive Summary",
-    "db_connectors":        "Database Connectors (Postgres, MySQL, BigQuery)",
-    "slack_alerts":         "Slack Alerts",
-    "email_alerts":         "Email Alerts",
-    "scheduler":            "Automated Monitoring Schedule",
-    "multi_dataset_compare":"Multi-Dataset Comparison",
+    "pdf_export":           "Client-ready PDF Briefs",
+    "rag_history":          "Pattern Library Memory",
+    "prophet_detection":    "Deeper incident validation",
+    "forecast":             "Trend and pacing outlooks",
+    "llm_summary":          "Agency brief drafting",
+    "db_connectors":        "Managed data connectors",
+    "slack_alerts":         "Slack delivery",
+    "email_alerts":         "Email delivery",
+    "scheduler":            "Scheduled portfolio monitoring",
+    "multi_dataset_compare":"Multi-workspace comparison",
+    "workspace_slots":      "Client Workspace Slots",
 }
 
-FEATURE_MIN_TIER: dict[str, str] = {
-    feature: ("business" if not plans["pro"]["features"].get(feature) else "pro")
-    for feature, plans in [("_", PLANS)]
-    for feature in PLANS["free"]["features"]
-    if not PLANS["free"]["features"].get(feature)
-}
-# Build it properly
-FEATURE_MIN_TIER = {}
-for feature in PLANS["free"]["features"]:
-    if not PLANS["free"]["features"][feature]:
-        if PLANS["pro"]["features"].get(feature):
-            FEATURE_MIN_TIER[feature] = "pro"
+FEATURE_MIN_TIER: dict[str, str] = {}
+for _feature in PLANS["free"]["features"]:
+    if not PLANS["free"]["features"][_feature]:
+        if PLANS["pro"]["features"].get(_feature):
+            FEATURE_MIN_TIER[_feature] = "pro"
         else:
-            FEATURE_MIN_TIER[feature] = "business"
+            FEATURE_MIN_TIER[_feature] = "business"
 
 
 # ── Tier comparison ───────────────────────────────────────────────────────────
@@ -169,53 +164,12 @@ def get_max_datasets(user_tier: str | None = None) -> int:
     return PLANS.get(user_tier, PLANS["free"])["features"]["max_datasets"]
 
 
-# ── Streamlit gate decorator ──────────────────────────────────────────────────
-
-def gate(feature: str) -> bool:
-    """
-    Streamlit tier gate.
-
-    Returns True if the current user has access to the feature.
-    If not, renders an upgrade prompt in the current Streamlit context
-    and returns False.
-
-    Example
-    -------
-        if gate("pdf_export"):
-            st.download_button("Download PDF", ...)
-    """
-    from src.auth import get_user_tier
-    user_tier = get_user_tier()
-
-    if check_access(feature, user_tier):
-        return True
-
-    # Feature is locked — show upgrade CTA
-    required = FEATURE_MIN_TIER.get(feature, "pro")
-    plan     = PLANS[required]
-    label    = FEATURE_LABELS.get(feature, feature.replace("_", " ").title())
-    color    = plan["color"]
-
-    st.markdown(
-        f"""
-        <div style="background:#0d1327;border:1px solid {color}40;border-radius:10px;
-            padding:1.2rem 1.5rem;margin:.5rem 0;">
-          <div style="font-size:.65rem;letter-spacing:2px;color:{color};
-              font-family:JetBrains Mono,monospace;margin-bottom:.4rem;">
-              🔒 {plan['label'].upper()} FEATURE
-          </div>
-          <div style="font-size:.9rem;color:#c9d1e3;margin-bottom:.8rem;">
-              <strong>{label}</strong> is available on the
-              <span style="color:{color};font-weight:700;">{plan['label']}</span> plan
-              (${plan['price_monthly']}/mo).
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.button(f"Upgrade to {plan['label']} →", key=f"upgrade_{feature}"):
-        st.switch_page("pages/4_💳_Billing.py")
-    return False
+def get_max_workspaces(user_tier: str | None = None) -> int:
+    """Return the client workspace limit for the tier (-1 = unlimited)."""
+    if user_tier is None:
+        from src.auth import get_user_tier
+        user_tier = get_user_tier()
+    return PLANS.get(user_tier, PLANS["free"])["features"]["max_workspaces"]
 
 
 # ── Stripe helpers ────────────────────────────────────────────────────────────
@@ -223,10 +177,7 @@ def gate(feature: str) -> bool:
 def _get_stripe():
     try:
         import stripe  # type: ignore
-        stripe.api_key = (
-            st.secrets.get("STRIPE_SECRET_KEY", "")
-            or os.getenv("STRIPE_SECRET_KEY", "")
-        )
+        stripe.api_key = _secret_or_env("STRIPE_SECRET_KEY", "")
         return stripe
     except ImportError as exc:
         raise ImportError("Run: pip install stripe") from exc
@@ -247,9 +198,7 @@ def create_checkout_session(
 
     # Read price IDs from secrets / env
     price_key = f"STRIPE_PRICE_{tier.upper()}"
-    price_id  = (
-        st.secrets.get(price_key, "") or os.getenv(price_key, "")
-    )
+    price_id  = _secret_or_env(price_key, "")
     if not price_id:
         logger.error("No Stripe price ID configured for tier '%s' (set %s).", tier, price_key)
         return None
@@ -262,6 +211,7 @@ def create_checkout_session(
             mode="subscription",
             success_url=success_url + "?upgraded=1",
             cancel_url=cancel_url,
+            client_reference_id=user_id,
             metadata={"user_id": user_id, "tier": tier},
         )
         return session.url

@@ -1,0 +1,12 @@
+-- Deprecated compatibility note.
+--
+-- This repository now treats `supabase/schema.sql` as the bootstrap schema for
+-- fresh environments and `supabase/migrations/*.sql` as the canonical upgrade
+-- path for existing environments.
+--
+-- Do not apply standalone policy changes from this file. Instead:
+--   1. Bootstrap a brand-new environment with `supabase/schema.sql`, or
+--   2. Apply the ordered files in `supabase/migrations/` to an existing project.
+--
+-- Keeping executable RLS in two separate files caused policy drift and made it
+-- too easy to deploy the wrong security state.

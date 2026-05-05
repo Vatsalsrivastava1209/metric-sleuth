@@ -1,0 +1,22 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.2, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\12vat\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\12vat\metric-sleuth
+plugins: anyio-4.8.0
+collecting ... collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+__________________ ERROR collecting tests/test_ingestion.py ___________________
+ImportError while importing test module 'C:\Users\12vat\metric-sleuth\tests\test_ingestion.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_ingestion.py:2: in <module>
+    from fastapi.testclient import TestClient
+E   ModuleNotFoundError: No module named 'fastapi'
+=========================== short test summary info ===========================
+ERROR tests/test_ingestion.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+============================== 1 error in 0.17s ===============================

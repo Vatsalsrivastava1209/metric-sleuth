@@ -1,79 +1,145 @@
 """
 rag_indexer.py
 ==============
-Indexes historical RCA reports into a ChromaDB vector store so they can
-be retrieved later by semantic similarity.
+Indexes historical investigation reports into Supabase pgvector so they can be
+retrieved later by semantic similarity.
 
-How it works
-------------
-1. Each RCA report (produced by ``report_generator.build_report``) is
-   converted to a plain-text document.
-2. The document is embedded using a local ``sentence-transformers`` model
-   (no API key required).
-3. The embedding + metadata are stored in a persistent ChromaDB collection.
-
-The index is stored on disk at ``data/rag_index/`` by default and is
-automatically created on first run.
+The production pgvector schema is pinned to OpenAI ``text-embedding-3-small``
+(1536 dims). If embedding infrastructure is unavailable, indexing fails closed
+instead of writing placeholder vectors that make semantic search appear healthy
+while silently returning junk results.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-from pathlib import Path
+import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ── Default paths ─────────────────────────────────────────────────────────────
-_DEFAULT_INDEX_DIR  = Path("data/rag_index")
-_COLLECTION_NAME    = "rca_reports"
-_EMBED_MODEL        = "all-MiniLM-L6-v2"   # fast, small, good quality
+# Embeddings are stored in a vector(1536) column, so only the OpenAI backend is
+# supported by the current production schema.
+_EMBED_BACKEND: str = os.getenv("EMBED_BACKEND", "openai").lower()
+_EMBED_API_KEY: str = os.getenv("EMBED_API_KEY", "")
+_OPENAI_EMBED_MODEL: str = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+EMBED_DIMS: int = 1536
+_TABLE = "rca_embeddings"
 
 
-def _import_deps():
-    """Lazy-import chromadb and sentence_transformers."""
+class EmbeddingUnavailableError(RuntimeError):
+    """Raised when semantic memory is not configured or not supported."""
+
+
+class EmbeddingGenerationError(RuntimeError):
+    """Raised when an embedding request fails after readiness checks pass."""
+
+
+def _resolve_embedding_api_key(api_key: str | None = None) -> str:
+    return (
+        _EMBED_API_KEY
+        or os.getenv("OPENAI_API_KEY", "")
+        or api_key
+        or os.getenv("LLM_API_KEY", "")
+    )
+
+
+def get_embedding_runtime_status(api_key: str | None = None) -> dict[str, Any]:
+    """Return the embedding readiness state used by semantic memory endpoints."""
+    resolved_key = _resolve_embedding_api_key(api_key)
+
+    if _EMBED_BACKEND == "none":
+        return {
+            "ready": False,
+            "backend": _EMBED_BACKEND,
+            "dimensions": EMBED_DIMS,
+            "reason": "Semantic embeddings are disabled via EMBED_BACKEND=none.",
+        }
+
+    if _EMBED_BACKEND != "openai":
+        return {
+            "ready": False,
+            "backend": _EMBED_BACKEND,
+            "dimensions": EMBED_DIMS,
+            "reason": (
+                "Semantic memory requires EMBED_BACKEND=openai because the current "
+                "pgvector schema is provisioned for 1536-dimensional embeddings."
+            ),
+        }
+
+    if not resolved_key:
+        return {
+            "ready": False,
+            "backend": _EMBED_BACKEND,
+            "dimensions": EMBED_DIMS,
+            "reason": (
+                "No embedding API key is configured. Set EMBED_API_KEY or OPENAI_API_KEY "
+                "to enable semantic memory."
+            ),
+        }
+
+    return {
+        "ready": True,
+        "backend": _EMBED_BACKEND,
+        "dimensions": EMBED_DIMS,
+        "reason": None,
+    }
+
+
+def assert_embedding_ready(api_key: str | None = None) -> str:
+    """Return a usable embedding API key or raise a fail-closed runtime error."""
+    status = get_embedding_runtime_status(api_key)
+    if not status["ready"]:
+        raise EmbeddingUnavailableError(str(status["reason"]))
+    return _resolve_embedding_api_key(api_key)
+
+
+def _get_admin_client():
+    from src.db import get_admin_client
+
+    return get_admin_client()
+
+
+def _get_user_client(access_token: str | None = None):
+    from src.db import get_client
+
+    return get_client(access_token)
+
+
+def _embed_text(text: str, api_key: str | None = None) -> list[float]:
+    """Generate a semantic embedding for *text* or raise a fail-closed error."""
+    resolved_key = assert_embedding_ready(api_key)
+
     try:
-        import chromadb                                       # type: ignore
-        from chromadb.utils import embedding_functions as ef  # type: ignore
-        return chromadb, ef
+        from openai import OpenAI  # type: ignore
     except ImportError as exc:
-        raise ImportError(
-            "chromadb is not installed. Run: pip install chromadb sentence-transformers"
+        raise EmbeddingUnavailableError(
+            "The OpenAI SDK is not installed, so semantic memory cannot generate embeddings."
         ) from exc
 
+    try:
+        client = OpenAI(api_key=resolved_key)
+        response = client.embeddings.create(
+            model=_OPENAI_EMBED_MODEL,
+            input=text,
+            encoding_format="float",
+        )
+        embedding = response.data[0].embedding
+    except Exception as exc:
+        logger.error("Embedding generation failed (%s): %s", _EMBED_BACKEND, exc)
+        raise EmbeddingGenerationError("Embedding generation failed.") from exc
 
-def get_collection(index_dir: str | Path = _DEFAULT_INDEX_DIR):
-    """Return (or create) the persistent ChromaDB collection.
+    if len(embedding) != EMBED_DIMS:
+        raise EmbeddingGenerationError(
+            f"Embedding dimension mismatch: expected {EMBED_DIMS}, received {len(embedding)}."
+        )
 
-    Parameters
-    ----------
-    index_dir:
-        Directory where ChromaDB persists its data.
-
-    Returns
-    -------
-    chromadb.Collection
-    """
-    chromadb, ef = _import_deps()
-    index_dir = Path(index_dir)
-    index_dir.mkdir(parents=True, exist_ok=True)
-
-    client = chromadb.PersistentClient(path=str(index_dir))
-    embedding_fn = ef.SentenceTransformerEmbeddingFunction(
-        model_name=_EMBED_MODEL
-    )
-    collection = client.get_or_create_collection(
-        name=_COLLECTION_NAME,
-        embedding_function=embedding_fn,
-        metadata={"hnsw:space": "cosine"},
-    )
-    return collection
+    return embedding
 
 
 def _report_to_text(report: dict[str, Any]) -> str:
-    """Flatten a structured RCA report dict into a single indexable text blob."""
+    """Flatten a structured report dict into a single indexable text blob."""
     parts: list[str] = []
 
     parts.append(f"Anomaly date: {report.get('anomaly_date', 'N/A')}")
@@ -81,7 +147,7 @@ def _report_to_text(report: dict[str, Any]) -> str:
 
     for a in report.get("anomaly_summary", []):
         parts.append(
-            f"Anomaly — {a['metric']} {a['direction']} on {a['date']}: "
+            f"Anomaly - {a['metric']} {a['direction']} on {a['date']}: "
             f"observed {a['observed']:.2f} vs expected {a['expected']:.2f} "
             f"(z-score {a['z_score']:.2f})"
         )
@@ -89,7 +155,7 @@ def _report_to_text(report: dict[str, Any]) -> str:
     for c in report.get("contribution_breakdown", []):
         parts.append(
             f"Factor {c['factor']} changed {c['pct_change']:.1f}%, "
-            f"contributing {c['contribution_pct']:.1f}% of the drop."
+            f"contributing {c['contribution_pct']:.1f}% of the decline."
         )
 
     for dim, records in report.get("segment_impact", {}).items():
@@ -101,7 +167,7 @@ def _report_to_text(report: dict[str, Any]) -> str:
             )
 
     for h in report.get("hypotheses", []):
-        parts.append(f"Hypothesis [{h['id']}]: {h['title']} — {h['description']}")
+        parts.append(f"Likely driver [{h['id']}]: {h['title']} - {h['description']}")
 
     for action in report.get("recommended_actions", []):
         parts.append(f"Action: {action}")
@@ -109,134 +175,116 @@ def _report_to_text(report: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def _report_id(report: dict[str, Any]) -> str:
-    """Generate a stable unique ID for a report based on its content hash."""
+def _make_doc_id(user_id: str, report: dict[str, Any]) -> str:
+    """Generate a stable, tenant-scoped document ID."""
     key = f"{report.get('anomaly_date', '')}_{report.get('primary_metric', '')}"
-    return hashlib.md5(key.encode()).hexdigest()[:16]
+    content_hash = hashlib.md5(key.encode()).hexdigest()[:16]
+    uid_prefix = user_id.replace("-", "")[:12]
+    return f"{uid_prefix}_{content_hash}"
 
 
 def index_report(
     report: dict[str, Any],
+    user_id: str,
     executive_summary: str = "",
-    index_dir: str | Path = _DEFAULT_INDEX_DIR,
+    report_id: str | None = None,
+    api_key: str | None = None,
 ) -> str:
-    """Add a single RCA report to the vector index.
+    """Add a single report to the pgvector index for a specific tenant."""
+    if not user_id:
+        raise ValueError("user_id is required for semantic indexing.")
 
-    Parameters
-    ----------
-    report:
-        Structured report dict from :func:`report_generator.build_report`.
-    executive_summary:
-        Plain-text summary to enrich the indexed document.
-    index_dir:
-        ChromaDB persistence directory.
-
-    Returns
-    -------
-    str
-        The document ID assigned to this report.
-    """
-    collection = get_collection(index_dir)
-
-    doc_id   = _report_id(report)
+    doc_id = _make_doc_id(user_id, report)
     doc_text = _report_to_text(report)
     if executive_summary:
         doc_text = executive_summary + "\n\n" + doc_text
 
     metadata = {
-        "anomaly_date":   str(report.get("anomaly_date", "")),
+        "user_id": user_id,
+        "anomaly_date": str(report.get("anomaly_date", "")),
         "primary_metric": str(report.get("primary_metric", "")),
-        "generated_at":   str(report.get("generated_at", "")),
-        "n_hypotheses":   len(report.get("hypotheses", [])),
+        "generated_at": str(report.get("generated_at", "")),
+        "n_hypotheses": len(report.get("hypotheses", [])),
     }
 
-    # Upsert — if the same report (same ID) is re-indexed it replaces the old copy
-    collection.upsert(
-        ids=[doc_id],
-        documents=[doc_text],
-        metadatas=[metadata],
-    )
+    embedding = _embed_text(doc_text, api_key=api_key)
 
-    logger.info("Indexed report '%s' (date=%s).", doc_id, metadata["anomaly_date"])
+    from src.db import _impersonate_user
+
+    client = _get_admin_client()
+    _impersonate_user(client, user_id)
+
+    row = {
+        "user_id": user_id,
+        "report_id": report_id,
+        "doc_id": doc_id,
+        "document": doc_text,
+        "metadata": metadata,
+        "embedding": embedding,
+    }
+
+    client.table(_TABLE).upsert(row, on_conflict="user_id,doc_id").execute()
+
+    logger.info(
+        "Indexed report '%s' for user=%s (date=%s) via pgvector.",
+        doc_id,
+        user_id,
+        metadata["anomaly_date"],
+    )
     return doc_id
 
 
 def index_reports_bulk(
-    reports: list[tuple[dict[str, Any], str]],
-    index_dir: str | Path = _DEFAULT_INDEX_DIR,
+    reports: list[tuple[dict[str, Any], str, str]],
+    api_key: str | None = None,
 ) -> list[str]:
-    """Index multiple reports at once.
-
-    Parameters
-    ----------
-    reports:
-        List of ``(report_dict, executive_summary)`` tuples.
-    index_dir:
-        ChromaDB persistence directory.
-
-    Returns
-    -------
-    list[str]
-        List of assigned document IDs.
-    """
-    return [index_report(r, s, index_dir) for r, s in reports]
+    """Index multiple reports at once."""
+    return [index_report(r, uid, summary, api_key=api_key) for r, uid, summary in reports]
 
 
 def list_indexed_reports(
-    index_dir: str | Path = _DEFAULT_INDEX_DIR,
+    user_id: str,
+    access_token: str | None = None,
 ) -> list[dict]:
-    """Return metadata for all indexed reports.
+    """Return metadata for all indexed reports belonging to *user_id*."""
+    if not user_id:
+        raise ValueError("user_id is required to list indexed reports.")
 
-    Returns
-    -------
-    list[dict]
-        Each dict has ``id``, ``anomaly_date``, ``primary_metric``,
-        ``generated_at``, ``n_hypotheses``.
-    """
-    collection = get_collection(index_dir)
-    result = collection.get(include=["metadatas"])
+    client = _get_user_client(access_token)
+    result = (
+        client.table(_TABLE)
+        .select("doc_id, metadata, created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+
     rows = []
-    for doc_id, meta in zip(result["ids"], result["metadatas"]):
-        rows.append({"id": doc_id, **meta})
+    for row in (result.data or []):
+        meta = row.get("metadata") or {}
+        rows.append(
+            {
+                "id": row.get("doc_id", ""),
+                "anomaly_date": meta.get("anomaly_date"),
+                "primary_metric": meta.get("primary_metric"),
+                "generated_at": meta.get("generated_at"),
+                "n_hypotheses": meta.get("n_hypotheses"),
+                "user_id": meta.get("user_id", user_id),
+            }
+        )
     return rows
 
 
-def clear_index(index_dir: str | Path = _DEFAULT_INDEX_DIR) -> None:
-    """Delete all documents from the collection (irreversible)."""
-    collection = get_collection(index_dir)
-    all_ids = collection.get()["ids"]
-    if all_ids:
-        collection.delete(ids=all_ids)
-    logger.info("Index cleared (%d documents removed).", len(all_ids))
+def clear_user_index(
+    user_id: str,
+    access_token: str | None = None,
+) -> int:
+    """Delete all embedding documents belonging to *user_id*."""
+    if not user_id:
+        raise ValueError("user_id is required to clear indexed reports.")
 
-
-# ── Example usage ─────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    import sys, pathlib, logging
-    sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-    from src.data_loader import load_data
-    from src.anomaly_detection import detect_anomalies, get_anomaly_dates
-    from src.segmentation_analysis import analyse_all_segments
-    from src.correlation_analysis import analyse_correlations
-    from src.contribution_analysis import compute_contributions
-    from src.hypothesis_engine import generate_hypotheses
-    from src.report_generator import build_report
-
-    logging.basicConfig(level=logging.INFO)
-    raw = load_data("data/sample_ecommerce.csv")
-    anomalies = detect_anomalies(raw)
-    dates = get_anomaly_dates(anomalies)
-
-    for d in dates:
-        segs    = analyse_all_segments(raw, d, "revenue")
-        contrib = compute_contributions(raw, d)
-        corr    = analyse_correlations(raw)
-        hyps    = generate_hypotheses(contrib, segs, corr)
-        anom_d  = anomalies[anomalies["date"] == d]
-        report  = build_report(anom_d, corr, segs, contrib, hyps, d)
-        doc_id  = index_report(report)
-        print(f"Indexed: {doc_id} (date={d})")
-
-    print("\nAll indexed reports:")
-    for r in list_indexed_reports():
-        print(" ", r)
+    client = _get_user_client(access_token)
+    result = client.table(_TABLE).delete().eq("user_id", user_id).execute()
+    deleted = len(result.data or [])
+    logger.info("pgvector index cleared for user=%s (%d documents removed).", user_id, deleted)
+    return deleted

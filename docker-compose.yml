@@ -1,35 +1,90 @@
 version: "3.9"
 
 services:
-  # ── Streamlit app ─────────────────────────────────────────────────────────
-  app:
-    build: .
+  redis:
+    image: redis:7-alpine
     ports:
-      - "8501:8501"
-    env_file: .env
-    volumes:
-      - ./data:/app/data   # persist RAG index across restarts
-    depends_on:
-      - webhook
+      - "6379:6379"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # ── Stripe webhook server ─────────────────────────────────────────────────
-  webhook:
+  celery_worker:
     build: .
-    command: python app/webhook.py
-    ports:
-      - "5001:5001"
+    command: >
+      celery -A api.worker.celery_app worker
+        --loglevel=info
+        --concurrency=4
+        --max-tasks-per-child=100
     env_file: .env
-    environment:
-      WEBHOOK_PORT: "5001"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-      interval: 30s
+      # Ping all workers to verify they are alive and processing.
+      # If a worker enters a zombie state (stuck on a Prophet/Stan call),
+      # Docker will detect it and trigger a restart.
+      test: ["CMD", "celery", "-A", "api.worker.celery_app", "inspect", "ping", "--timeout", "5"]
+      interval: 60s
       timeout: 10s
       retries: 3
+      start_period: 30s
+
+  celery_beat:
+    build: .
+    command: >
+      celery -A api.worker.celery_app beat
+        --loglevel=info
+        --scheduler=celery.beat:PersistentScheduler
+        --schedule=/data/celerybeat-schedule
+    env_file: .env
+    volumes:
+      - ./data:/app/data   # persistent volume — schedule survives container restart
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+    env_file:
+      - ./frontend/.env.local
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  redis_data:

@@ -1,0 +1,52 @@
+name: Anomaly Detector Backtest
+
+on:
+  push:
+    paths:
+      - "src/anomaly_detection.py"
+      - "src/anomaly_evaluation.py"
+      - "src/prophet_anomaly_detection.py"
+      - "utils/config.py"
+      - "tests/test_anomaly_backtest.py"
+      - "tests/fixtures/**"
+  pull_request:
+    paths:
+      - "src/anomaly_detection.py"
+      - "src/anomaly_evaluation.py"
+      - "src/prophet_anomaly_detection.py"
+      - "utils/config.py"
+      - "tests/test_anomaly_backtest.py"
+      - "tests/fixtures/**"
+
+jobs:
+  backtest:
+    name: Detector regression (F1 ≥ 0.60)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy scikit-learn scipy prophet ruptures pytest
+
+      - name: Run anomaly backtest
+        run: |
+          python -m pytest tests/test_anomaly_backtest.py -v \
+            --tb=short \
+            -p no:warnings
+
+      - name: Upload backtest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: tests/fixtures/
+          retention-days: 30

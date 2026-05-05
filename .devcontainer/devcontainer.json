@@ -1,33 +1,34 @@
 {
-  "name": "Python 3",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  "name": "MetricSleuth",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
   "customizations": {
     "codespaces": {
       "openFiles": [
         "README.md",
-        "app/streamlit_app.py"
+        "frontend/src/app/dashboard/page.tsx"
       ]
     },
     "vscode": {
       "settings": {},
       "extensions": [
         "ms-python.python",
-        "ms-python.vscode-pylance"
+        "ms-python.vscode-pylance",
+        "dbaeumer.vscode-eslint"
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
-  "postAttachCommand": {
-    "server": "streamlit run app/streamlit_app.py --server.enableCORS false --server.enableXsrfProtection false"
-  },
-  "portsAttributes": {
-    "8501": {
-      "label": "Application",
-      "onAutoForward": "openPreview"
-    }
-  },
+  "updateContentCommand": "[ -f requirements.txt ] && pip3 install --user -r requirements.txt; cd frontend && npm install",
   "forwardPorts": [
-    8501
-  ]
+    3000,
+    8000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "MetricSleuth Frontend",
+      "onAutoForward": "openBrowser"
+    },
+    "8000": {
+      "label": "MetricSleuth API"
+    }
+  }
 }

@@ -1,37 +1,13 @@
 services:
-  # ── Streamlit App ─────────────────────────────────────────────────────────
   - type: web
-    name: metricsleuth-app
+    name: metricsleuth-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /_stcore/health
+    healthCheckPath: /api/health
     envVars:
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_PRICE_PRO
-        sync: false
-      - key: STRIPE_PRICE_BUSINESS
-        sync: false
-      - key: APP_BASE_URL
-        sync: false
-    disk:
-      name: rag-data
-      mountPath: /app/data
-      sizeGB: 1
-
-  # ── Stripe Webhook Server ─────────────────────────────────────────────────
-  - type: web
-    name: metricsleuth-webhook
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerCommand: python app/webhook.py
-    healthCheckPath: /health
-    envVars:
-      - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
         sync: false
@@ -39,5 +15,25 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
-      - key: WEBHOOK_PORT
-        value: "10000"
+      - key: STRIPE_PRICE_PRO
+        sync: false
+      - key: STRIPE_PRICE_BUSINESS
+        sync: false
+      - key: REDIS_URL
+        sync: false
+    disk:
+      name: rag-data
+      mountPath: /app/data
+      sizeGB: 1
+
+  - type: web
+    name: metricsleuth-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    envVars:
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

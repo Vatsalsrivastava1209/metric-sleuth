@@ -1,135 +1,94 @@
-# MetricSleuth 
+# Metric Sleuth
 
-> **AI-powered Root Cause Analysis engine for business metrics.**
+Client anomaly detection and white-label investigation briefs for ecommerce agencies.
 
-MetricSleuth automatically detects anomalies in time-series KPIs (revenue, traffic, conversion rate) and traces them back to their likely root causes using statistical analysis and a rule-based hypothesis engine - all surfaced in an interactive Streamlit dashboard.
+Metric Sleuth is a SaaS product for agencies managing multiple ecommerce or paid media accounts. The product is no longer framed as a generic enterprise analytics platform. The wedge is narrower and more useful: help agency teams catch client KPI anomalies early, investigate likely drivers quickly, and send a clean client-ready brief without rebuilding the story from scratch.
 
-Live Website : https://metric-sleuth-6aj7nhdpg2uu8ctqyizwfg.streamlit.app/
+## What the product does
 
----
+- Saves storefront and channel exports as reusable client workspaces.
+- Detects unusual movement in metrics like `revenue`, `traffic`, `orders`, and `conversion_rate`.
+- Runs segmentation, correlation, and contribution analysis to rank likely drivers.
+- Generates internal investigation briefs plus client-ready summary exports.
+- Organizes reports in an incident inbox for portfolio-level review.
+- Supports historical pattern search for teams that want to compare new incidents with past ones.
 
-## Features
+## Product positioning
 
-| Module | What it does |
-|---|---|
-| **Data Loader** | Reads & validates CSVs, coerces dates, deduplicates |
-| **Preprocessing** | Rolling stats, pct-change, time features, normalisation |
-| **Anomaly Detection** | Rolling Z-score detection with configurable threshold |
-| **Segmentation Analysis** | Compares anomaly-day vs. baseline per region / device / source |
-| **Correlation Analysis** | Pearson r with p-values; strong-correlator identification |
-| **Contribution Analysis** | Proportional attribution of metric changes to factors |
-| **Hypothesis Engine** | Rule-based ranked hypotheses with confidence scores |
-| **Report Generator** | Structured dict + Markdown RCA report (downloadable) |
-| **Streamlit Dashboard** | Interactive UI with Plotly charts and one-click RCA |
+The intended buyer is not "all enterprises with data."
 
----
+The intended buyer is:
+- ecommerce agencies
+- paid media agencies
+- growth teams managing repeated client reporting workflows
 
-## Project Structure
+The product pitch is:
 
-```
-metric-sleuth/
-├── data/
-│   └── sample_ecommerce.csv      # Sample dataset with planted anomalies
-├── src/
-│   ├── data_loader.py
-│   ├── preprocessing.py
-│   ├── anomaly_detection.py
-│   ├── segmentation_analysis.py
-│   ├── correlation_analysis.py
-│   ├── contribution_analysis.py
-│   ├── hypothesis_engine.py
-│   └── report_generator.py
-├── app/
-│   └── streamlit_app.py
-├── utils/
-│   └── config.py
-├── requirements.txt
-└── README.md
-```
+> Metric Sleuth helps ecommerce agencies detect client KPI anomalies early, explain likely drivers using connected data, and send white-label briefs in minutes.
 
----
+## Architecture
 
-## Quick Start
+- `frontend/`: Next.js application for the public landing page, authentication, portfolio dashboard, client workspaces, incident inbox, settings, billing, and exports.
+- `api/`: FastAPI backend for investigation jobs, dataset APIs, billing webhooks, exports, account settings, and pattern-library endpoints.
+- `src/`: analytics, storage, billing, connector, retrieval, persistence, and observability logic.
+- `supabase/`: schema and RLS setup for multi-tenant persistence and private dataset storage.
+- `tests/`: backend and analytical regression coverage.
 
-### 1. Install dependencies
+## Primary workflow
+
+1. Sign in through the Next.js app.
+2. Save a storefront or channel export as a client workspace.
+3. Run an investigation against a saved workspace or one-off upload.
+4. Review the incident in the portfolio dashboard or incident inbox.
+5. Switch between internal investigation mode and client-summary mode.
+6. Export markdown or PDF deliverables for the account team.
+
+## Local development
+
+### Backend
 
 ```bash
 pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000
 ```
 
-### 2. Launch the dashboard
+### Frontend
 
 ```bash
-streamlit run app/streamlit_app.py
+cd frontend
+npm install
+npm run dev
 ```
 
-### 3. Use the sample dataset or upload your own CSV
+The frontend expects the backend at `http://localhost:8000` unless `NEXT_PUBLIC_API_URL` or `METRICSLEUTH_API_URL` is set.
 
-The dashboard opens in your browser. Use the sidebar to:
-- Choose between the built-in sample dataset or upload your own
-- Tune the Z-score threshold and rolling window
-- Navigate the five analysis tabs
+## Required services
 
----
+- Supabase for auth, Postgres, and private file storage
+- Redis for rate limiting and job ownership checks
+- Celery worker for asynchronous investigations
+- Stripe for agency billing and plan lifecycle
 
-## Dataset Format
+## Security and multi-tenancy
 
-Your CSV must contain these columns:
+- Supabase Row-Level Security gates profiles, datasets, and reports.
+- Background jobs use service-role connectivity with session impersonation instead of expiring user JWTs.
+- Durable dataset files live in a private storage bucket scoped by user path prefixes.
+- The API enforces JWT auth, security headers, and backend-side rate limiting.
+- Client-ready exports still require authenticated access; they are shorter and safer than the internal analyst narrative.
 
-| Column | Type | Description |
-|---|---|---|
-| `date` | `YYYY-MM-DD` | Daily date |
-| `revenue` | float | Daily revenue |
-| `traffic` | int | Daily site visits |
-| `orders` | int | Daily orders placed |
-| `conversion_rate` | float | Orders / traffic |
-| `region` | string | Geographic region |
-| `device` | string | `Desktop`, `Mobile`, `Tablet` |
-| `traffic_source` | string | `Organic Search`, `Paid Search`, etc. |
-
----
-
-## Configuration
-
-All tuneable parameters live in `utils/config.py`:
-
-```python
-ANOMALY_Z_THRESHOLD = 2.0       # |Z-score| threshold
-ANOMALY_ROLLING_WINDOW = 7      # Rolling window (days)
-STRONG_CORRELATION_THRESHOLD = 0.7
-SEGMENT_COLUMNS = ["region", "device", "traffic_source"]
-```
-
----
-
-## Running Individual Modules
-
-Each module can be executed standalone for quick testing:
+## Evaluation and testing
 
 ```bash
-python src/anomaly_detection.py
-python src/segmentation_analysis.py
-python src/report_generator.py
+python -m pytest -q
 ```
 
----
+The anomaly detector includes a lightweight backtesting path in `src/anomaly_evaluation.py` so labeled incident dates can be scored with precision, recall, and F1 during regression testing.
 
-## Tech Stack
+## Production rollout
 
-- **Python 3.10+**
-- `pandas`, `numpy`, `scipy`, `scikit-learn`
-- `plotly` - interactive charts
-- `streamlit` - dashboard framework
+Use the runbook in [docs/PRODUCTION_ROLLOUT.md](/C:/Users/12vat/metric-sleuth/docs/PRODUCTION_ROLLOUT.md) for:
 
----
-
-## Sample Output
-
-The RCA report includes:
--  Anomaly detection table with Z-scores
--  Segment performance breakdown
--  Correlation matrix heatmap
--  Contribution donut chart
--  Ranked hypotheses with confidence scores
--  Prioritised recommended actions
--  Downloadable Markdown report
+- exact Supabase migration order
+- deploy sequencing across API, worker, beat, and frontend
+- smoke tests and post-deploy validation

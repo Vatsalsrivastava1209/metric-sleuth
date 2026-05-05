@@ -2,7 +2,7 @@
 report_generator.py
 ===================
 Assembles all analysis outputs into a structured, human-readable
-Root Cause Analysis (RCA) report.
+metric investigation report.
 
 The report is returned both as a Python dictionary (for programmatic use)
 and as a Markdown string (for display in Streamlit or export to file).
@@ -38,7 +38,7 @@ def build_report(
     selected_date: pd.Timestamp | None = None,
     primary_metric: str = "revenue",
 ) -> dict[str, Any]:
-    """Build a structured RCA report as a nested dictionary.
+    """Build a structured investigation report as a nested dictionary.
 
     Parameters
     ----------
@@ -133,7 +133,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
     Returns
     -------
     str
-        Full Markdown-formatted RCA report.
+        Full Markdown-formatted investigation report.
     """
     lines: list[str] = []
     lines.append(f"# {report['title']}")
@@ -180,7 +180,7 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No segment data._")
 
     # ── Hypotheses ────────────────────────────────────────────────────────────
-    lines.append("\n---\n##  Potential Root Causes\n")
+    lines.append("\n---\n##  Likely Drivers\n")
     if report["hypotheses"]:
         for h in report["hypotheses"]:
             conf_bar = "🟢" if h["confidence"] >= 0.75 else "🟡" if h["confidence"] >= 0.5 else "🔴"
