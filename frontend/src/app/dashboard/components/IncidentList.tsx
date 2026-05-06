@@ -14,7 +14,10 @@ type Report = {
   confidence: number | null
   n_anomalies: number | null
   workflow_status: string | null
-  report_payload: Record<string, unknown> | null
+  // report_payload is optional — the dashboard query intentionally omits it
+  // (P0-C: was 50-200 KB per report × 50 reports = up to 5 MB per render).
+  // It is only fetched on the individual report detail page.
+  report_payload?: Record<string, unknown> | null
 }
 
 type DatasetInfo = { name: string }
@@ -190,7 +193,7 @@ export function IncidentList({
           <div className="divide-y divide-slate-800/60">
             {filtered.map((report) => {
               const name = datasets[report.dataset_id ?? '']?.name ?? 'Ad hoc'
-              const dir  = directionLabel(report.report_payload)
+              const dir  = directionLabel(report.report_payload ?? null)
               const conf = Math.round(Number(report.confidence ?? 0) * 100)
               const urgent = (report.workflow_status === 'new' || report.workflow_status === 'in_review') && conf >= 70
 
