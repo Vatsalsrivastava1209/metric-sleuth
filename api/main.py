@@ -36,7 +36,41 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.observability import set_request_id
 from utils.config import MAX_UPLOAD_SIZE_BYTES
 
-# ── Application factory ───────────────────────────────────────────────────────
+# ── P2-A: Sentry observability ────────────────────────────────────────────────
+# Initialize before the FastAPI app so the SDK instruments all route handlers
+# and the Celery worker via CeleryIntegration.
+# Sentry is a no-op when SENTRY_DSN is absent (development / CI).
+_sentry_dsn = os.getenv("SENTRY_DSN", "")
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.httpx import HttpxIntegration
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            integrations=[
+                FastApiIntegration(transaction_style="endpoint"),
+                CeleryIntegration(monitor_beat_tasks=True),
+                HttpxIntegration(),
+            ],
+            # Sample 10% of traces to balance observability cost.
+            # Raise to 1.0 during incident investigation.
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            environment=os.getenv("ENVIRONMENT", "development"),
+            release=os.getenv("APP_VERSION", "unknown"),
+            # PII scrubbing: never send request body or user emails to Sentry.
+            send_default_pii=False,
+        )
+        import logging as _logging
+        _logging.getLogger(__name__).info("Sentry initialized (environment=%s)", os.getenv("ENVIRONMENT", "development"))
+    except ImportError:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "SENTRY_DSN is set but sentry-sdk is not installed. "
+            "Run: pip install sentry-sdk[fastapi] to enable error tracking."
+        )
+
 
 _docs_enabled = os.getenv("DOCS_ENABLED", "true").lower() == "true"
 

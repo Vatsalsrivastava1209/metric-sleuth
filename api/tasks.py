@@ -4,14 +4,30 @@ Celery background tasks for the MetricSleuth investigation pipeline.
 The worker normalizes the dataset once, persists a prepared parquet artifact,
 and fans out downstream work from that canonical object instead of re-reading
 the original payload repeatedly.
+
+Backtest note (P0-B)
+--------------------
+The rolling-origin Prophet backtest is O(n²) in Prophet fits. On a 365-day
+dataset with 90 warmup points it performs ~275 fits, each taking 5-15 s.
+That translates to 23-68 minutes of blocked CPU per metric per run — enough
+to permanently stall all Celery workers under modest concurrent load.
+
+The backtest is therefore decoupled from the main pipeline:
+  - The main pipeline captures only static Z-score config metadata.
+  - ``run_prophet_backtest`` is a separate fire-and-forget task, gated on
+    a minimum dataset size and cached in Redis for 24 h per (dataset_id, metric).
 """
 
 from __future__ import annotations
 
 import io
+import json
 import logging
+import os
+import tempfile
 from typing import Any
 
+import httpx
 import pandas as pd
 from celery import chord
 
@@ -22,16 +38,26 @@ from src.correlation_analysis import analyse_correlations
 from src.db import save_report_meta, update_analysis_run
 from src.hypothesis_engine import generate_hypotheses
 from src.llm_summary import generate_executive_summary
-from src.prophet_anomaly_detection import ProphetTimeoutError, detect_prophet_anomalies
+from src.prophet_anomaly_detection import (
+    ProphetTimeoutError,
+    detect_prophet_anomalies,
+)
 from src.rag_indexer import index_report
 from src.report_generator import build_report, report_to_markdown
 from src.segmentation_analysis import analyse_all_segments
-from utils.config import ANOMALY_METRICS, MAX_UPLOAD_SIZE_BYTES
+from utils.config import (
+    ANOMALY_METRICS,
+    ANOMALY_METRIC_THRESHOLDS,
+    ANOMALY_METRIC_WINDOWS,
+    MAX_UPLOAD_SIZE_BYTES,
+)
 
 logger = logging.getLogger(__name__)
 
 ROW_CAP = 2_000_000
 STORAGE_BUCKET = "temp-processing"
+MAX_SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
+MAX_TASK_RETRIES = 3
 
 
 def _set_run_status(
@@ -54,9 +80,8 @@ def _set_run_status(
     )
 
 
-def _download_from_storage(storage_key: str) -> bytes:
+def _download_to_spooled_file(storage_key: str):
     from src.db import get_admin_client
-    import httpx
 
     client = get_admin_client()
     try:
@@ -67,6 +92,7 @@ def _download_from_storage(storage_key: str) -> bytes:
     except Exception as exc:
         raise RuntimeError(f"Could not generate secure download link: {exc}") from exc
 
+    spool = tempfile.SpooledTemporaryFile(max_size=MAX_SPOOL_MEMORY_BYTES, mode="w+b")
     with httpx.Client(follow_redirects=True, timeout=60.0) as hclient:
         with hclient.stream("GET", url) as response:
             response.raise_for_status()
@@ -74,14 +100,14 @@ def _download_from_storage(storage_key: str) -> bytes:
             if content_length and int(content_length) > MAX_UPLOAD_SIZE_BYTES:
                 raise ValueError("Dataset exceeds the maximum allowed size of 200MB.")
 
-            chunks: list[bytes] = []
             bytes_downloaded = 0
             for chunk in response.iter_bytes(chunk_size=8192):
                 bytes_downloaded += len(chunk)
                 if bytes_downloaded > MAX_UPLOAD_SIZE_BYTES:
                     raise ValueError("Dataset stream exceeds the maximum allowed size of 200MB.")
-                chunks.append(chunk)
-            return b"".join(chunks)
+                spool.write(chunk)
+    spool.seek(0)
+    return spool
 
 
 def _delete_from_storage(storage_key: str) -> None:
@@ -95,8 +121,10 @@ def _delete_from_storage(storage_key: str) -> None:
         logger.warning("Failed to delete storage object %s: %s", storage_key, exc)
 
 
-def _parse_dataframe(file_bytes: bytes, orient: str) -> pd.DataFrame:
-    buf = io.BytesIO(file_bytes)
+def _parse_dataframe(source: Any, orient: str) -> pd.DataFrame:
+    if hasattr(source, "seek"):
+        source.seek(0)
+    buf = source
     if orient == "csv":
         df = pd.read_csv(buf, engine="pyarrow", dtype_backend="pyarrow")
     elif orient == "parquet":
@@ -120,9 +148,30 @@ def _parse_dataframe(file_bytes: bytes, orient: str) -> pd.DataFrame:
 
 
 def _normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize the date column to tz-naive UTC midnight.
+
+    P2-C Fix: the previous implementation used .dt.tz_localize(None) after
+    converting to UTC. This silently drops the tz info but keeps the UTC
+    wall-clock value, which is correct for UTC-source data. However, datasets
+    sourced from local-time systems (e.g. US-East e-commerce) that have not
+    already been converted to UTC will appear to shift by the DST offset
+    (typically 1 h) at every DST boundary, which the anomaly detector flags
+    as a false anomaly.
+
+    The correct pattern:
+      1. Parse to UTC (makes all timestamps unambiguously UTC-aware).
+      2. Normalize to midnight UTC (floors sub-day precision; idempotent on daily data).
+      3. Strip tz info with tz_convert(None) so downstream Pandas ops that
+         don't handle tz-aware Series don't fail (e.g. Prophet, ruptures).
+    This is DST-safe because UTC itself has no DST transitions.
+    """
     normalized = df.copy()
     if "date" in normalized.columns:
-        normalized["date"] = pd.to_datetime(normalized["date"], utc=True).dt.tz_localize(None)
+        normalized["date"] = (
+            pd.to_datetime(normalized["date"], utc=True)
+            .dt.normalize()        # floor to midnight UTC (idempotent on daily data)
+            .dt.tz_convert(None)   # strip tz — UTC is now implicit, no DST transitions
+        )
         normalized = normalized.sort_values("date").reset_index(drop=True)
     return normalized
 
@@ -143,14 +192,21 @@ def _upload_prepared_dataframe(run_id: str, user_id: str, df: pd.DataFrame) -> s
 
 
 def _load_prepared_dataframe(storage_key: str) -> pd.DataFrame:
-    return _parse_dataframe(_download_from_storage(storage_key), "parquet")
+    spool = _download_to_spooled_file(storage_key)
+    try:
+        return _parse_dataframe(spool, "parquet")
+    finally:
+        spool.close()
 
 
 def _load_source_dataframe(storage_key: str | None, dataset_id: str | None, user_id: str, orient: str) -> pd.DataFrame:
     if storage_key:
-        file_bytes = _download_from_storage(storage_key)
-        df = _parse_dataframe(file_bytes, orient)
-        return _normalize_dataframe(df)
+        spool = _download_to_spooled_file(storage_key)
+        try:
+            df = _parse_dataframe(spool, orient)
+            return _normalize_dataframe(df)
+        finally:
+            spool.close()
 
     if not dataset_id:
         raise ValueError("dataset_id is required when storage_key is not provided.")
@@ -159,6 +215,36 @@ def _load_source_dataframe(storage_key: str | None, dataset_id: str | None, user
 
     df = load_dataset_from_connector(dataset_id, user_id=user_id)
     return _normalize_dataframe(df)
+
+
+# Minimum dataset size (rows) before the optional backtest is worth running.
+# Below this threshold the backtest's scored_points count is too small to be
+# meaningful. This also prevents triggering O(n²) work on tiny demo datasets.
+_BACKTEST_MIN_ROWS: int = int(os.getenv("PROPHET_BACKTEST_MIN_ROWS", "180"))
+
+# Redis cache TTL for backtest results — 24 h prevents repeated fits on the
+# same dataset when a user runs multiple analyses in a day.
+_BACKTEST_CACHE_TTL_SECONDS: int = 86_400
+
+
+def _build_detector_validation_snapshot(df: pd.DataFrame, metric: str) -> dict[str, Any]:
+    """Return static detector configuration metadata — NO backtest.
+
+    P0-B Fix: the previous implementation called backtest_prophet_detector()
+    synchronously here, which fits O(n) Prophet models inside the main Celery
+    task, blocking workers for 23-68 minutes on year-long datasets.
+
+    The backtest is now a separate fire-and-forget Celery task
+    (``run_prophet_backtest``) dispatched after the main pipeline completes.
+    It stores results in Redis and in the analysis_runs.progress_meta field
+    so the UI can display them when ready.
+    """
+    return {
+        "history_points":   len(df),
+        "z_score_threshold": ANOMALY_METRIC_THRESHOLDS.get(metric),
+        "z_score_window":    ANOMALY_METRIC_WINDOWS.get(metric),
+        "prophet_backtest_status": "pending",  # updated asynchronously
+    }
 
 
 @celery_app.task(bind=True, name="api.tasks.run_rca_pipeline")
@@ -230,6 +316,41 @@ def run_rca_pipeline(
             backend=backend,
         )
         return {"status": "processing", "message": "Deep investigation running."}
+    except httpx.HTTPError as exc:
+        retries = int(self.request.retries or 0)
+        if retries < MAX_TASK_RETRIES:
+            _set_run_status(
+                run_id,
+                user_id,
+                "RUNNING",
+                "Transient storage/network issue detected. Retrying the investigation run.",
+                {"stage": "retrying", "retry_count": retries + 1},
+            )
+            raise self.retry(exc=exc, countdown=min(60, 2 ** retries * 10), max_retries=MAX_TASK_RETRIES)
+        logger.error("Pipeline dead-lettered for user=%s after retries: %s", user_id, exc, exc_info=True)
+        _set_run_status(
+            run_id,
+            user_id,
+            "FAILURE",
+            "The investigation was moved to the dead-letter state after repeated storage/network failures.",
+            {"stage": "dead_letter", "retry_count": retries},
+            str(exc),
+            None,
+        )
+        update_analysis_run(
+            job_id=run_id,
+            user_id=user_id,
+            status="FAILURE",
+            status_message="The investigation exhausted retries and was dead-lettered.",
+            progress_meta={"stage": "dead_letter", "retry_count": retries},
+            error_message=str(exc),
+            extra_updates={"dead_lettered_at": pd.Timestamp.utcnow().isoformat()},
+        )
+        if storage_key:
+            _delete_from_storage(storage_key)
+        if prepared_storage_key:
+            _delete_from_storage(prepared_storage_key)
+        raise
     except Exception as exc:
         logger.error("Pipeline launcher crashed for user=%s: %s", user_id, exc, exc_info=True)
         _set_run_status(run_id, user_id, "FAILURE", "The investigation failed before completion.", {"stage": "failed"}, str(exc))
@@ -254,6 +375,9 @@ def prophet_evaluate_metric(
         res = detect_prophet_anomalies(df, scan_metric, interval_width)
         return res.to_json(orient="records", date_format="iso") if not res.empty else "[]"
     except ProphetTimeoutError:
+        return "[]"
+    except httpx.HTTPError as exc:
+        logger.warning("Prophet prepared-frame download failed for %s: %s", scan_metric, exc)
         return "[]"
     except Exception as exc:
         logger.warning("Prophet sub-task failed for %s (non-fatal): %s", scan_metric, exc)
@@ -337,6 +461,7 @@ def run_rca_pipeline_callback(
             hyps,
             report_date,
             primary_metric=metric,
+            detector_validation=_build_detector_validation_snapshot(df, metric),
         )
 
         exec_summary = generate_executive_summary(report_dict, api_key=api_key or None, backend=backend)
@@ -382,7 +507,63 @@ def run_rca_pipeline_callback(
             report_id=report_id,
         )
         logger.info("Pipeline completed successfully for user=%s run=%s", user_id, run_id)
+
+        # ── P0-B: Fire-and-forget async Prophet backtest ──────────────────────
+        # Only dispatch if the dataset is large enough to produce meaningful
+        # results. The task is independent of this pipeline's lifecycle.
+        if len(df) >= _BACKTEST_MIN_ROWS:
+            try:
+                run_prophet_backtest.apply_async(
+                    kwargs={
+                        "prepared_storage_key": prepared_storage_key,
+                        "metric": metric,
+                        "dataset_id": dataset_id or "",
+                        "run_id": run_id,
+                        "user_id": user_id,
+                    },
+                    # Low priority: let the main pipeline tasks win.
+                    # Requires Redis with priority support (default Celery config).
+                    priority=3,
+                    # Don't let backtest block the storage cleanup in `finally`.
+                    # The task receives its own prepared frame copy from storage.
+                    countdown=5,
+                )
+                logger.info("Dispatched async Prophet backtest for run=%s metric=%s", run_id, metric)
+            except Exception as exc:
+                # Non-fatal: backtest is optional enrichment, not core output.
+                logger.warning("Could not dispatch Prophet backtest for run=%s: %s", run_id, exc)
+
         return {"status": "success", "message": "Pipeline completed. Report saved to database.", "report_id": report_id}
+    except httpx.HTTPError as exc:
+        retries = int(self.request.retries or 0)
+        if retries < MAX_TASK_RETRIES:
+            _set_run_status(
+                run_id,
+                user_id,
+                "RUNNING",
+                "Transient storage/network issue detected during deep analysis. Retrying.",
+                {"stage": "retrying", "retry_count": retries + 1},
+            )
+            raise self.retry(exc=exc, countdown=min(60, 2 ** retries * 10), max_retries=MAX_TASK_RETRIES)
+        logger.error("Callback dead-lettered for user=%s run=%s: %s", user_id, run_id, exc, exc_info=True)
+        _set_run_status(
+            run_id,
+            user_id,
+            "FAILURE",
+            "Deep analysis exhausted retries and was moved to the dead-letter state.",
+            {"stage": "dead_letter", "retry_count": retries},
+            str(exc),
+        )
+        update_analysis_run(
+            job_id=run_id,
+            user_id=user_id,
+            status="FAILURE",
+            status_message="Deep analysis exhausted retries and was dead-lettered.",
+            progress_meta={"stage": "dead_letter", "retry_count": retries},
+            error_message=str(exc),
+            extra_updates={"dead_lettered_at": pd.Timestamp.utcnow().isoformat()},
+        )
+        raise
     except Exception as exc:
         logger.error("Callback crashed for user=%s run=%s: %s", user_id, run_id, exc, exc_info=True)
         _set_run_status(run_id, user_id, "FAILURE", "The investigation failed during deep analysis.", {"stage": "failed"}, str(exc))
@@ -390,3 +571,141 @@ def run_rca_pipeline_callback(
     finally:
         if prepared_storage_key:
             _delete_from_storage(prepared_storage_key)
+
+
+# ── Optional async Prophet backtest ──────────────────────────────────────────
+
+@celery_app.task(
+    bind=True,
+    name="api.tasks.run_prophet_backtest",
+    # Soft time-limit: 30 min (a 365-day × 3-metric backtest should finish
+    # well within this; the hard limit in worker.py is 1 h).
+    soft_time_limit=1800,
+    time_limit=2100,
+)
+def run_prophet_backtest(
+    self,
+    prepared_storage_key: str,
+    metric: str,
+    dataset_id: str,
+    run_id: str,
+    user_id: str,
+) -> dict[str, Any]:
+    """Run the rolling-origin Prophet backtest asynchronously.
+
+    P0-B: This task is intentionally decoupled from the main RCA pipeline.
+    It is dispatched as a fire-and-forget job after the main pipeline SUCCESS
+    and runs at low priority. Results are cached in Redis for 24 h keyed on
+    (dataset_id, metric) so repeated same-day analyses don't refit Prophet.
+
+    The backtest results are written back to the analysis_run row so the
+    frontend can display them when the user opens the report detail page.
+
+    Parameters
+    ----------
+    prepared_storage_key:
+        The Parquet object key from the main pipeline's _upload_prepared_dataframe.
+        NOTE: the main pipeline deletes this in its ``finally`` block 5 s after
+        dispatching this task (see countdown=5). There is therefore a tiny race
+        window. If the download fails, the task returns gracefully without error.
+    metric:
+        Primary metric to backtest.
+    dataset_id:
+        Dataset UUID or empty string (used as cache key component).
+    run_id:
+        The analysis_run ID to update with backtest results.
+    user_id:
+        The owning tenant UUID.
+    """
+    import redis as _redis_sync  # sync client — Celery tasks are not async
+    from src.prophet_anomaly_detection import backtest_prophet_detector, ProphetTimeoutError
+
+    # ── 1. Cache lookup ───────────────────────────────────────────────────────
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    cache_key = f"prophet_backtest:{dataset_id}:{metric}"
+    try:
+        rclient = _redis_sync.from_url(redis_url, decode_responses=True)
+        cached = rclient.get(cache_key)
+        if cached:
+            result = json.loads(cached)
+            logger.info("Prophet backtest cache hit for dataset=%s metric=%s", dataset_id, metric)
+            # Still update the run row so the frontend can display results.
+            update_analysis_run(
+                job_id=run_id,
+                user_id=user_id,
+                status="SUCCESS",
+                status_message="Investigation complete. Brief saved to the incident inbox.",
+                progress_meta={
+                    "stage": "complete",
+                    "prophet_backtest": result,
+                    "prophet_backtest_source": "cache",
+                },
+            )
+            return result
+    except Exception as exc:
+        logger.warning("Redis cache lookup failed for backtest task: %s — proceeding to fit.", exc)
+
+    # ── 2. Load the prepared dataframe from storage ───────────────────────────
+    try:
+        spool = _download_to_spooled_file(prepared_storage_key)
+        try:
+            df = _parse_dataframe(spool, "parquet")
+        finally:
+            spool.close()
+    except Exception as exc:
+        # The main pipeline may have already cleaned up storage (race window).
+        logger.warning(
+            "Prophet backtest could not download prepared frame for run=%s: %s — skipping.",
+            run_id, exc,
+        )
+        return {"status": "skipped", "reason": "prepared_frame_unavailable"}
+
+    if metric not in df.columns:
+        logger.warning("Prophet backtest: metric '%s' not in DataFrame columns — skipping.", metric)
+        return {"status": "skipped", "reason": "metric_not_found"}
+
+    # ── 3. Run the backtest ───────────────────────────────────────────────────
+    try:
+        backtest = backtest_prophet_detector(df, metric=metric)
+        result = {
+            "status": "complete",
+            "mode": "rolling_origin_one_step",
+            "train_points": backtest.train_points,
+            "scored_points": backtest.scored_points,
+            "flagged_dates": [str(ts) for ts in backtest.flagged_dates],
+            "flagged_count": len(backtest.flagged_dates),
+        }
+        logger.info(
+            "Prophet backtest complete: run=%s metric=%s flagged=%d/%d",
+            run_id, metric, result["flagged_count"], result["scored_points"],
+        )
+    except ProphetTimeoutError as exc:
+        logger.warning("Prophet backtest timed out for run=%s metric=%s: %s", run_id, metric, exc)
+        result = {"status": "timeout", "reason": str(exc)}
+    except Exception as exc:
+        logger.error("Prophet backtest failed for run=%s metric=%s: %s", run_id, metric, exc, exc_info=True)
+        result = {"status": "error", "reason": str(exc)}
+
+    # ── 4. Cache result ───────────────────────────────────────────────────────
+    try:
+        rclient.set(cache_key, json.dumps(result), ex=_BACKTEST_CACHE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("Redis cache write failed for backtest task: %s", exc)
+
+    # ── 5. Update analysis run with backtest enrichment ───────────────────────
+    try:
+        update_analysis_run(
+            job_id=run_id,
+            user_id=user_id,
+            status="SUCCESS",
+            status_message="Investigation complete. Brief saved to the incident inbox.",
+            progress_meta={
+                "stage": "complete",
+                "prophet_backtest": result,
+                "prophet_backtest_source": "live",
+            },
+        )
+    except Exception as exc:
+        logger.warning("Could not write backtest results to analysis run %s: %s", run_id, exc)
+
+    return result

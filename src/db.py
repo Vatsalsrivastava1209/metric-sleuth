@@ -31,13 +31,18 @@ import os
 import re
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from src.crypto import encrypt_string, decrypt_string
+from src.crypto import (
+    EncryptionUnavailableError,
+    decrypt_string,
+    encrypt_string,
+    require_encryption,
+)
 
 load_dotenv()
 
@@ -49,8 +54,26 @@ _CONNECTION_CONFIG_PLAINTEXT_KEYS = {
     "storage_bucket",
     "file_type",
     "session_only",
+    "query",
+    "lookback_days",
+    "original_filename",
+    "pilot_only",
+    "credential_mode",
+    "requires_manual_refresh",
+    "token_expires_at",
+    "source_label",
+}
+_SENSITIVE_CONNECTION_CONFIG_KEYS = {
+    "access_token",
+    "developer_token",
+    "private_key",
+    "password",
+    "refresh_token",
+    "client_secret",
+    "api_key",
 }
 USER_DATASET_BUCKET = "user-datasets"
+DEFAULT_SHARE_TTL_DAYS = int(os.getenv("REPORT_SHARE_TTL_DAYS", "14"))
 
 
 def _json_default(value: Any) -> Any:
@@ -80,61 +103,65 @@ def _json_compatible(payload: Any) -> Any:
 def get_client(access_token: str | None = None):
     """Return a Supabase client authenticated with the ANON key.
 
-    Suitable for SYNCHRONOUS Streamlit / Next.js originated paths where the
-    user's live JWT is available and unexpired.  For background worker writes,
-    always use get_admin_client() + _impersonate_user() instead.
+    P1-A: Now returns the process-scoped singleton from utils/supabase_client
+    rather than creating a new client per call. This eliminates the N\u00d7M TCP
+    connection explosion that occurred when every DB function in a multi-stage
+    Celery pipeline opened its own connection pool.
+
+    For user-authenticated queries, ``access_token`` is forwarded to the
+    PostgREST layer via ``client.postgrest.auth(token)`` so RLS policies fire
+    against the caller's JWT. The singleton client object is shared, but the
+    auth header is set per-request (not stored globally).
+
+    For background worker writes, use ``get_admin_client() + _impersonate_user``.
     """
     try:
+        from utils.supabase_client import get_anon_singleton
+    except ImportError:
+        # Fallback: direct instantiation (e.g., Streamlit environment without utils/)
         from supabase import create_client  # type: ignore
-    except ImportError as exc:
-        raise ImportError("Run: pip install supabase") from exc
+        url = os.getenv("SUPABASE_URL", "")
+        key = os.getenv("SUPABASE_ANON_KEY", "")
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be set.")
+        client = create_client(url, key)
+        if access_token:
+            client.postgrest.auth(access_token)
+        return client
 
-    url = ""
-    key = ""
-    try:
-        import streamlit as st
-        url = st.secrets.get("SUPABASE_URL", "")
-        key = st.secrets.get("SUPABASE_ANON_KEY", "")
-    except Exception:
-        pass
-
-    url = url or os.getenv("SUPABASE_URL", "")
-    key = key or os.getenv("SUPABASE_ANON_KEY", "")
-
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be set.")
-
-    client = create_client(url, key)
-
+    client = get_anon_singleton()
     if access_token:
         client.postgrest.auth(access_token)
-
     return client
 
 
 def get_admin_client():
     """Return a Supabase client using the SERVICE_ROLE key.
 
+    P1-A: Now returns the process-scoped singleton from utils/supabase_client
+    rather than creating a new client per call.
+
     The service role bypasses Row Level Security by default.  It is ONLY safe
     to use in a trusted server context (FastAPI / Celery).  Never expose to the
     browser or a Streamlit frontend.
 
     For background writes that must still respect per-user isolation, call
-    `_impersonate_user(admin_client, user_id)` immediately after obtaining the
-    client.  This sets the Postgres `request.jwt.claim.sub` session variable so
-    that all RLS policies fire correctly for that user's session without needing
-    the original JWT.
+    ``_impersonate_user(admin_client, user_id)`` immediately after obtaining
+    the client.  This sets the Postgres ``request.jwt.claim.sub`` session
+    variable so that all RLS policies fire correctly for that user's session
+    without needing the original JWT.
     """
     try:
+        from utils.supabase_client import get_service_singleton
+        return get_service_singleton()
+    except ImportError:
+        # Fallback: direct instantiation
         from supabase import create_client  # type: ignore
-    except ImportError as exc:
-        raise ImportError("Run: pip install supabase") from exc
-
-    url = os.getenv("SUPABASE_URL", "")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-    return create_client(url, key)
+        url = os.getenv("SUPABASE_URL", "")
+        key = os.getenv("SUPABASE_SERVICE_KEY", "")
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
+        return create_client(url, key)
 
 
 def _serialize_connection_config(connection_config: dict[str, Any] | None) -> dict[str, Any]:
@@ -142,6 +169,7 @@ def _serialize_connection_config(connection_config: dict[str, Any] | None) -> di
     if not connection_config:
         return {}
 
+    require_encryption()
     stored: dict[str, Any] = {}
     encrypted_keys: list[str] = []
 
@@ -169,6 +197,12 @@ def _deserialize_connection_config(connection_config: dict[str, Any] | None) -> 
 
     runtime = dict(connection_config)
     encrypted_keys = runtime.pop("__encrypted_keys__", [])
+    for key in _SENSITIVE_CONNECTION_CONFIG_KEYS:
+        value = runtime.get(key)
+        if isinstance(value, str) and value and key not in encrypted_keys:
+            raise EncryptionUnavailableError(
+                f"Connection config field '{key}' is stored as plaintext and must be rotated through secure storage."
+            )
     for key in encrypted_keys:
         value = runtime.get(key)
         if isinstance(value, str):
@@ -491,6 +525,9 @@ def save_dataset_meta(
         if inserted:
             return inserted[0]["id"]
         return None
+    except EncryptionUnavailableError as exc:
+        logger.error("Failed to save dataset securely for user %s: %s", user_id, exc)
+        return None
     except Exception as exc:
         logger.error("Failed to save dataset: %s", exc)
         return None
@@ -518,6 +555,9 @@ def update_dataset_meta(
     try:
         client.table("datasets").update(updates).eq("id", dataset_id).eq("user_id", user_id).execute()
         return True
+    except EncryptionUnavailableError as exc:
+        logger.error("Failed to update dataset %s securely: %s", dataset_id, exc)
+        return False
     except Exception as exc:
         logger.error("Failed to update dataset %s: %s", dataset_id, exc)
         return False
@@ -770,14 +810,33 @@ def create_report_share_token(
 ) -> dict[str, Any] | None:
     """Create or rotate a public client-brief token for a report."""
     share_token = secrets.token_urlsafe(24)
+    expires_at = datetime.utcnow() + timedelta(days=DEFAULT_SHARE_TTL_DAYS)
     return update_report_meta(
         report_id,
         user_id,
         {
             "share_token": share_token,
-            "share_expires_at": None,
+            "share_created_by": user_id,
+            "share_created_at": datetime.utcnow().isoformat(),
+            "share_expires_at": expires_at.isoformat(),
+            "share_last_accessed_at": None,
+            "share_revoked_at": None,
             "workflow_status": "ready_to_send",
         },
+        access_token,
+    )
+
+
+def revoke_report_share_token(
+    report_id: str,
+    user_id: str,
+    access_token: str | None = None,
+) -> dict[str, Any] | None:
+    """Revoke a public client-brief token while preserving report history."""
+    return update_report_meta(
+        report_id,
+        user_id,
+        {"share_revoked_at": datetime.utcnow().isoformat()},
         access_token,
     )
 
@@ -839,6 +898,9 @@ def get_shared_report(share_token: str) -> dict[str, Any] | None:
     if not report:
         return None
 
+    if report.get("share_revoked_at"):
+        return None
+
     if report.get("share_expires_at"):
         try:
             expires_at = datetime.fromisoformat(str(report["share_expires_at"]).replace("Z", "+00:00"))
@@ -872,6 +934,13 @@ def get_shared_report(share_token: str) -> dict[str, Any] | None:
     except Exception:
         profile = None
 
+    try:
+        client.table("rca_reports").update(
+            {"share_last_accessed_at": datetime.utcnow().isoformat()}
+        ).eq("id", report["id"]).execute()
+    except Exception as exc:
+        logger.warning("Failed to audit public brief access for report %s: %s", report.get("id"), exc)
+
     return {
         "report": report,
         "workspace_name": (workspace or {}).get("name", "Client workspace"),
@@ -887,6 +956,7 @@ def create_analysis_run(
     user_id: str,
     metric: str,
     dataset_id: str | None = None,
+    source_label: str | None = None,
     storage_key: str | None = None,
     source_type: str = "saved_dataset",
     access_token: str | None = None,
@@ -902,6 +972,7 @@ def create_analysis_run(
         "user_id": user_id,
         "metric": metric,
         "dataset_id": dataset_id,
+        "source_label": source_label or "",
         "storage_key": storage_key,
         "source_type": source_type,
         "status": "QUEUED",
@@ -909,6 +980,8 @@ def create_analysis_run(
         "progress_meta": {"stage": "queued"},
         "started_at": None,
         "completed_at": None,
+        "retry_count": 0,
+        "dead_lettered_at": None,
     }
     try:
         client.table("analysis_runs").insert(row).execute()
@@ -926,6 +999,7 @@ def update_analysis_run(
     progress_meta: dict[str, Any] | None = None,
     error_message: str | None = None,
     report_id: str | None = None,
+    extra_updates: dict[str, Any] | None = None,
 ) -> bool:
     """Update a run using service-role connectivity plus user impersonation."""
     client = get_admin_client()
@@ -943,6 +1017,8 @@ def update_analysis_run(
     }
     if report_id is not None:
         updates["report_id"] = report_id
+    if extra_updates:
+        updates.update(extra_updates)
     if status == "RUNNING":
         updates["started_at"] = datetime.utcnow().isoformat()
         updates["completed_at"] = None

@@ -104,3 +104,38 @@ def test_signed_upload_url_accepts_csv_and_returns_storage_key():
     assert response.status_code == 200
     payload = response.json()
     assert payload["storage_key"].endswith(".csv")
+
+
+def test_signed_upload_url_accepts_parquet():
+    app.dependency_overrides[get_current_user] = _mock_user
+
+    class _StorageBucket:
+        def create_signed_upload_url(self, storage_key: str):
+            return {"signedUrl": "https://storage.example/upload", "path": storage_key}
+
+    class _Storage:
+        def from_(self, _bucket: str):
+            return _StorageBucket()
+
+    class _AdminClient:
+        storage = _Storage()
+
+    with patch("api.dependencies.get_admin_client", return_value=_AdminClient()):
+        response = client.post(
+            "/api/v1/analyze/signed-url",
+            data={"filename": "client-export.parquet"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["storage_key"].endswith(".parquet")
+
+
+def test_signed_upload_url_rejects_json():
+    app.dependency_overrides[get_current_user] = _mock_user
+
+    response = client.post(
+        "/api/v1/analyze/signed-url",
+        data={"filename": "client-export.json"},
+    )
+
+    assert response.status_code == 422

@@ -63,7 +63,19 @@ async def check_rate_limit(user_id: str) -> None:
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("Redis rate-limit check failed for user %s (%s). Allowing request.", user_id, exc)
+        # P2-B: Redis is unavailable. Fail open (allow the request) but emit a
+        # structured warning so ops dashboards can detect Redis degradation.
+        # Under normal operations this should never fire — alert if it does.
+        logger.warning(
+            "redis_rate_limit_failure user=%s error=%s action=fail_open",
+            user_id, exc,
+        )
+        # Capture in Sentry if configured (P2-A), so the on-call team is paged.
+        try:
+            import sentry_sdk as _sentry
+            _sentry.capture_exception(exc)
+        except Exception:
+            pass
 
 
 class SignedUrlResponse(BaseModel):
@@ -74,7 +86,6 @@ class SignedUrlResponse(BaseModel):
 
 _DIRECT_UPLOAD_EXTENSIONS = {
     ".csv": "csv",
-    ".json": "split",
     ".parquet": "parquet",
 }
 
@@ -93,7 +104,7 @@ async def create_signed_upload_url(
     if ext is None:
         raise HTTPException(
             status_code=422,
-            detail="Unsupported upload type. One-off investigations only accept CSV, JSON, or Parquet files.",
+            detail="Unsupported upload type. One-off investigations only accept CSV or Parquet files.",
         )
 
     storage_key = f"{user_id}/{job_id}{ext}"
@@ -145,6 +156,7 @@ async def start_analysis(
         user_id,
         metric,
         dataset_id,
+        None,
         storage_key,
         source_type,
         access_token,
@@ -160,6 +172,21 @@ async def start_analysis(
         )
         orient = _DIRECT_UPLOAD_EXTENSIONS[suffix]
 
+    # P1-E: Fetch the user's configured LLM key and backend from their profile
+    # so the Celery task uses their actual credentials, not the system fallback.
+    # This is a non-blocking thread call (Supabase SDK is synchronous).
+    user_api_key = ""
+    user_backend = "gemini"
+    try:
+        from src.db import get_profile
+        profile = await asyncio.to_thread(get_profile, user_id, access_token)
+        if profile:
+            user_api_key = profile.get("llm_api_key", "") or ""
+            user_backend = profile.get("llm_backend", "gemini") or "gemini"
+    except Exception as exc:
+        # Non-fatal: fall back to system-level LLM config.
+        logger.warning("Could not fetch user profile for LLM config (run=%s): %s — using system defaults.", job_id, exc)
+
     try:
         run_rca_pipeline.apply_async(
             args=[
@@ -168,8 +195,8 @@ async def start_analysis(
                 user_id,
                 dataset_id,
                 orient,
-                "",
-                "gemini",
+                user_api_key,   # P1-E: per-user key (falls back to LLM_API_KEY in task if empty)
+                user_backend,   # P1-E: per-user backend preference
                 USE_PROPHET,
             ],
             task_id=job_id,
@@ -192,6 +219,7 @@ async def start_analysis(
         job_id=job_id,
         message="Analysis queued. Poll /api/v1/analyze/jobs/{job_id} for status.",
     )
+
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)

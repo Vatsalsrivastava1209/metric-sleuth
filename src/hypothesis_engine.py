@@ -280,7 +280,7 @@ def _aov_drop_hypothesis(
         title="Average Order Value Decline",
         description=(
             "Traffic and order counts held steady while revenue fell, implying that "
-            "the average basket size (AOV) declined. Possible causes include a shift "
+            "the average basket size (AOV) declined. Possible drivers include a shift "
             "in product mix, a new discount/promotion, or customers downgrading to "
             "cheaper items."
         ),

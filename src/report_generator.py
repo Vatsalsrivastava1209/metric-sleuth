@@ -37,6 +37,7 @@ def build_report(
     hypotheses: list[Hypothesis],
     selected_date: pd.Timestamp | None = None,
     primary_metric: str = "revenue",
+    detector_validation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a structured investigation report as a nested dictionary.
 
@@ -73,6 +74,7 @@ def build_report(
         "contribution_breakdown": [],
         "hypotheses": [],
         "recommended_actions": [],
+        "detector_validation": detector_validation or {},
     }
 
     # ── Anomaly summary ───────────────────────────────────────────────────────
@@ -195,6 +197,21 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         lines.append("_No hypotheses generated._")
 
     # ── Recommended actions ───────────────────────────────────────────────────
+    lines.append("\n---\n##  Detector Validation Snapshot\n")
+    if report.get("detector_validation"):
+        validation_df = pd.DataFrame(
+            [
+                {
+                    "Check": str(key).replace("_", " ").title(),
+                    "Value": value if not isinstance(value, dict) else str(value),
+                }
+                for key, value in (report.get("detector_validation") or {}).items()
+            ]
+        )
+        lines.append(_md_table(validation_df))
+    else:
+        lines.append("_No detector validation snapshot recorded._")
+
     lines.append("\n---\n##  Recommended Actions\n")
     if report["recommended_actions"]:
         for i, action in enumerate(report["recommended_actions"], 1):

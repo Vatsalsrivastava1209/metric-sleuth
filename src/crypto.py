@@ -22,50 +22,63 @@ logger = logging.getLogger(__name__)
 # Generate one using: Fernet.generate_key()
 _APP_SECRET_KEY = os.environ.get("APP_SECRET_KEY", "")
 
+
+class EncryptionUnavailableError(RuntimeError):
+    """Raised when an operation requires encryption but APP_SECRET_KEY is absent."""
+
+
 _fernet: Fernet | None = None
 if _APP_SECRET_KEY:
     try:
         _fernet = Fernet(_APP_SECRET_KEY.encode("utf-8"))
     except Exception as exc:
         logger.error("Failed to initialize Fernet with APP_SECRET_KEY: %s", exc)
+        raise EncryptionUnavailableError("APP_SECRET_KEY is invalid. Sensitive values cannot be encrypted.") from exc
 else:
-    logger.warning("APP_SECRET_KEY is not set. Encryption will be disabled (fallback to plaintext).")
+    logger.warning("APP_SECRET_KEY is not set. Sensitive encryption paths are unavailable.")
+
+
+def is_encryption_available() -> bool:
+    return _fernet is not None
+
+
+def require_encryption() -> None:
+    if _fernet is None:
+        raise EncryptionUnavailableError(
+            "APP_SECRET_KEY is required for sensitive storage operations."
+        )
 
 
 def encrypt_string(plaintext: str) -> str:
     """Encrypt a plaintext string using AES-256.
-    
-    If encryption is disabled (no secret key), returns the original string
-    but logs a warning.
+
+    Fails closed when APP_SECRET_KEY is unavailable instead of silently
+    returning plaintext.
     """
     if not plaintext:
         return ""
-        
-    if _fernet is None:
-        logger.warning("Encryption disabled. Returning plaintext string.")
-        return plaintext
-        
+
+    require_encryption()
+
     try:
         encrypted_bytes = _fernet.encrypt(plaintext.encode("utf-8"))
         return encrypted_bytes.decode("utf-8")
     except Exception as exc:
         logger.error("Failed to encrypt string: %s", exc)
-        return plaintext
+        raise EncryptionUnavailableError("Sensitive value encryption failed.") from exc
 
 
 def decrypt_string(ciphertext: str) -> str:
     """Decrypt an AES-256 ciphertext string.
-    
-    If the string is not valid Fernet ciphertext (e.g. it was stored before
-    encryption was enabled), this gracefully falls back and returns the
-    string as-is.
+
+    For sensitive fields we fail closed when encryption is unavailable or
+    ciphertext integrity cannot be verified.
     """
     if not ciphertext:
         return ""
-        
-    if _fernet is None:
-        return ciphertext
-        
+
+    require_encryption()
+
     try:
         decrypted_bytes = _fernet.decrypt(ciphertext.encode("utf-8"))
         return decrypted_bytes.decode("utf-8")

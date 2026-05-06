@@ -35,8 +35,8 @@ class AnalyzeRequest(BaseModel):
             if len(v) > 255:
                 raise ValueError("storage_key must be 255 characters or fewer.")
             lowered = v.lower()
-            if not lowered.endswith((".csv", ".json", ".parquet")):
-                raise ValueError("storage_key must reference a csv, json, or parquet object.")
+            if not lowered.endswith((".csv", ".parquet")):
+                raise ValueError("storage_key must reference a csv or parquet object.")
         return v
 
     @field_validator("metric")
@@ -295,6 +295,10 @@ class ReportWorkflowResponse(BaseModel):
     assigned_owner: str = ""
     internal_notes: str = ""
     share_token: str | None = None
+    share_created_at: str | None = None
+    share_expires_at: str | None = None
+    share_last_accessed_at: str | None = None
+    share_revoked_at: str | None = None
     last_client_delivery_at: str | None = None
     delivery_channel: str | None = None
     feedback_rating: int | None = None
@@ -304,6 +308,7 @@ class ReportWorkflowResponse(BaseModel):
 class ReportShareResponse(BaseModel):
     share_token: str
     public_path: str
+    expires_at: str | None = None
 
 
 class ReportDeliveryRequest(BaseModel):

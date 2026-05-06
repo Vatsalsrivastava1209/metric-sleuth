@@ -324,7 +324,7 @@ def detect_changepoints(
         if metric not in df.columns:
             continue
 
-        series = df[metric].astype(float).fillna(method="ffill").values
+        series = df[metric].astype(float).ffill().values
         if len(series) < min_size * 2:
             continue
 

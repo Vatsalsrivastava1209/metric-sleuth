@@ -15,6 +15,7 @@ import asyncio
 import io
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -145,10 +146,11 @@ def _validate_filename(filename: str | None) -> str:
     return suffix
 
 
-def _read_tabular_bytes(file_bytes: bytes, suffix: str) -> pd.DataFrame:
+def _read_tabular_file(file_obj, suffix: str) -> pd.DataFrame:
+    file_obj.seek(0)
     if suffix in {".xls", ".xlsx"}:
-        return pd.read_excel(io.BytesIO(file_bytes))
-    return pd.read_csv(io.BytesIO(file_bytes))
+        return pd.read_excel(file_obj)
+    return pd.read_csv(file_obj)
 
 
 def _serialize_preview_rows(df: pd.DataFrame, limit: int = 5) -> list[dict]:
@@ -184,6 +186,9 @@ def _integration_config(payload: IntegrationWorkspaceRequest, require_metric_id:
     credentials["lookback_days"] = payload.lookback_days
     credentials["connector_type"] = payload.provider
     credentials["query"] = "daily_metrics"
+    credentials["pilot_only"] = True
+    credentials["credential_mode"] = "manual_token"
+    credentials["requires_manual_refresh"] = True
     if payload.metric_id:
         credentials["metric_id"] = payload.metric_id
     return credentials
@@ -198,7 +203,7 @@ def _connect_integration(provider: str, config: dict):
     return connector
 
 
-async def _read_upload_bytes(file_payload: UploadFile) -> tuple[bytes, str]:
+async def _read_upload_file(file_payload: UploadFile):
     suffix = _validate_filename(file_payload.filename)
 
     # Fast path: if the client sent a Content-Length header, reject before reading.
@@ -217,18 +222,29 @@ async def _read_upload_bytes(file_payload: UploadFile) -> tuple[bytes, str]:
         except ValueError:
             pass  # Malformed Content-Length — proceed and let the read-size check handle it
 
-    file_bytes = await file_payload.read()
-    if not file_bytes:
+    spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+    total_bytes = 0
+    while True:
+        chunk = await file_payload.read(1024 * 1024)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > MAX_DATASET_FILE_SIZE_BYTES:
+            spool.close()
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Dataset file exceeds the maximum allowed size of "
+                    f"{MAX_DATASET_FILE_SIZE_BYTES // (1024 * 1024)} MB."
+                ),
+            )
+        spool.write(chunk)
+
+    if total_bytes == 0:
+        spool.close()
         raise HTTPException(status_code=422, detail="Uploaded dataset file is empty.")
-    if len(file_bytes) > MAX_DATASET_FILE_SIZE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"Dataset file exceeds the maximum allowed size of "
-                f"{MAX_DATASET_FILE_SIZE_BYTES // (1024 * 1024)} MB."
-            ),
-        )
-    return file_bytes, suffix
+    spool.seek(0)
+    return spool, suffix, total_bytes
 
 
 
@@ -331,11 +347,13 @@ async def preview_dataset(
 ) -> DatasetPreviewResponse:
     del current_user
 
-    file_bytes, suffix = await _read_upload_bytes(file_payload)
+    spool, suffix, _ = await _read_upload_file(file_payload)
     try:
-        df = await asyncio.to_thread(_read_tabular_bytes, file_bytes, suffix)
+        df = await asyncio.to_thread(_read_tabular_file, spool, suffix)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not parse dataset file: {exc}") from exc
+    finally:
+        spool.close()
 
     suggested_mapping = suggest_mapping(df)
     validation_errors = validate_mapping(suggested_mapping, df)
@@ -373,15 +391,17 @@ async def create_dataset(
     if not isinstance(mapping, dict):
         raise HTTPException(status_code=422, detail="mapping_json must be a JSON object.")
 
-    file_bytes, suffix = await _read_upload_bytes(file_payload)
+    spool, suffix, _ = await _read_upload_file(file_payload)
 
     try:
-        df_raw = await asyncio.to_thread(_read_tabular_bytes, file_bytes, suffix)
+        df_raw = await asyncio.to_thread(_read_tabular_file, spool, suffix)
     except Exception as exc:
+        spool.close()
         raise HTTPException(status_code=422, detail=f"Could not parse dataset file: {exc}") from exc
 
     validation_errors = validate_mapping(mapping, df_raw)
     if validation_errors:
+        spool.close()
         raise HTTPException(status_code=422, detail="; ".join(validation_errors))
 
     df_canonical = apply_mapping(df_raw, mapping)
@@ -399,6 +419,8 @@ async def create_dataset(
     )
 
     try:
+        spool.seek(0)
+        file_bytes = spool.read()
         storage_key = await asyncio.to_thread(
             upload_user_dataset_bytes,
             user_id,
@@ -407,11 +429,14 @@ async def create_dataset(
             content_type,
         )
     except Exception as exc:
+        spool.close()
         logger.error("Failed to upload dataset object for user %s: %s", user_id, exc)
         raise HTTPException(
             status_code=502,
             detail="Failed to persist dataset file to secure storage.",
         ) from exc
+    finally:
+        spool.close()
 
     dataset_id = await asyncio.to_thread(
         save_dataset_meta,

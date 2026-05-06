@@ -39,6 +39,7 @@ from src.db import (
     get_shared_report,
     record_report_delivery,
     record_report_feedback,
+    revoke_report_share_token,
     update_report_meta,
 )
 from src.observability import log_event
@@ -54,6 +55,10 @@ def _workflow_response(report: dict[str, Any]) -> ReportWorkflowResponse:
         assigned_owner=str(report.get("assigned_owner") or ""),
         internal_notes=str(report.get("internal_notes") or ""),
         share_token=report.get("share_token"),
+        share_created_at=report.get("share_created_at"),
+        share_expires_at=report.get("share_expires_at"),
+        share_last_accessed_at=report.get("share_last_accessed_at"),
+        share_revoked_at=report.get("share_revoked_at"),
         last_client_delivery_at=report.get("last_client_delivery_at"),
         delivery_channel=report.get("delivery_channel"),
         feedback_rating=report.get("feedback_rating"),
@@ -306,7 +311,29 @@ async def create_share_link(
 
     token = str(report["share_token"])
     log_event(logger, "report.share_link_created", user_id=current_user["user_id"], report_id=report_id)
-    return ReportShareResponse(share_token=token, public_path=_build_share_path(token))
+    return ReportShareResponse(
+        share_token=token,
+        public_path=_build_share_path(token),
+        expires_at=report.get("share_expires_at"),
+    )
+
+
+@router.delete("/api/v1/reports/{report_id}/share-link", response_model=ReportWorkflowResponse)
+async def revoke_share_link(
+    report_id: str,
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> ReportWorkflowResponse:
+    report = await asyncio.to_thread(
+        revoke_report_share_token,
+        report_id,
+        current_user["user_id"],
+        current_user["access_token"],
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found.")
+
+    log_event(logger, "report.share_link_revoked", user_id=current_user["user_id"], report_id=report_id)
+    return _workflow_response(report)
 
 
 @router.post("/api/v1/reports/{report_id}/deliver/slack", response_model=ReportDeliveryResponse)

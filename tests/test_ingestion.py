@@ -72,6 +72,10 @@ def test_successful_m2m_ingestion(
     storage_client.storage.from_.return_value.upload.assert_called_once()
     mock_create_analysis_run.assert_called_once()
     mock_apply_async.assert_called_once()
+    args = mock_create_analysis_run.call_args.args
+    assert args[2] == "sales"
+    assert args[3] is None
+    assert args[4] == "shopify_prod"
 
 
 @patch("api.dependencies.get_admin_client")

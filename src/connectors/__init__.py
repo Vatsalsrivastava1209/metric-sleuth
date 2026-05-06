@@ -14,6 +14,8 @@ Usage
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pandas as pd
 
 from src.connectors.csv_connector      import CSVConnector
@@ -70,6 +72,20 @@ def load_dataset_from_connector(
     connector_type = str(dataset.get("connector_type", "")).lower()
     schema_mapping = dataset.get("schema_mapping") or {}
     config = dataset.get("connection_config") or {}
+
+    if config.get("requires_manual_refresh") and config.get("token_expires_at"):
+        try:
+            expires_at = datetime.fromisoformat(str(config["token_expires_at"]).replace("Z", "+00:00"))
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                raise RuntimeError(
+                    f"The saved {connector_type} token has expired and this pilot-only workspace requires manual reconnection."
+                )
+        except ValueError as exc:
+            raise RuntimeError(
+                f"The saved {connector_type} token expiry metadata is invalid. Reconnect the workspace before analysis."
+            ) from exc
 
     if connector_type == "csv":
         storage_key = config.get("storage_key")

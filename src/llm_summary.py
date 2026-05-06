@@ -284,7 +284,7 @@ def _fallback_summary(report: dict[str, Any]) -> str:
 
     # Top hypothesis
     hyps = report.get("hypotheses", [])
-    top_hyp = hyps[0]["title"] if hyps else "an unidentified cause"
+    top_hyp = hyps[0]["title"] if hyps else "an unidentified likely driver"
 
     summary_parts = [
         f"On {date}, a significant anomaly was detected in the {metric} metric."
@@ -329,7 +329,7 @@ _CLAIM_TO_RULE: dict[str, str] = {
 }
 
 _DISCLAIMER = (
-    " [Note: one or more causal claims in this summary could not be corroborated "
+        " [Note: one or more likely-driver claims in this summary could not be corroborated "
     "by the quantitative analysis. Verify before sharing with the client.]"
 )
 

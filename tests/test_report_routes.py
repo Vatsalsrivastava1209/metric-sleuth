@@ -52,7 +52,12 @@ def test_create_share_link_returns_public_path():
 
     with patch(
         "api.routers.reports.create_report_share_token",
-        return_value={"id": "report-123", "share_token": "share-abc", "workflow_status": "ready_to_send"},
+        return_value={
+            "id": "report-123",
+            "share_token": "share-abc",
+            "share_expires_at": "2026-05-20T00:00:00",
+            "workflow_status": "ready_to_send",
+        },
     ):
         response = client.post("/api/v1/reports/report-123/share-link")
 
@@ -60,6 +65,28 @@ def test_create_share_link_returns_public_path():
     payload = response.json()
     assert payload["share_token"] == "share-abc"
     assert payload["public_path"] == "/brief/share-abc"
+    assert payload["expires_at"] == "2026-05-20T00:00:00"
+
+
+def test_revoke_share_link_returns_updated_workflow():
+    app.dependency_overrides[get_current_user] = _mock_user
+
+    with patch(
+        "api.routers.reports.revoke_report_share_token",
+        return_value={
+            "id": "report-123",
+            "workflow_status": "ready_to_send",
+            "assigned_owner": "",
+            "internal_notes": "",
+            "share_token": "share-abc",
+            "share_revoked_at": "2026-05-07T00:00:00",
+        },
+    ):
+        response = client.delete("/api/v1/reports/report-123/share-link")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["share_revoked_at"] == "2026-05-07T00:00:00"
 
 
 def test_public_brief_returns_client_safe_payload():
@@ -95,6 +122,13 @@ def test_public_brief_returns_client_safe_payload():
     assert payload["workspace_name"] == "Aurelia Skin"
     assert payload["agency_name"] == "Northstar Growth"
     assert payload["evidence"]
+
+
+def test_public_brief_returns_404_when_share_is_unavailable():
+    with patch("api.routers.reports.get_shared_report", return_value=None):
+        response = client.get("/api/v1/public/brief/share-expired")
+
+    assert response.status_code == 404
 
 
 def test_deliver_to_slack_requires_webhook_configuration():

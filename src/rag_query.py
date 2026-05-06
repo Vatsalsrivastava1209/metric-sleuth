@@ -82,7 +82,7 @@ _SYSTEM_PROMPT = textwrap.dedent("""
 
     RULES YOU MUST FOLLOW:
     1. Answer the user's question based ONLY on the retrieved reports provided.
-    2. Be specific: mention dates, metrics, segments, and causes from the data.
+    2. Be specific: mention dates, metrics, segments, and likely drivers from the data.
     3. If the retrieved reports are not relevant, say so clearly.
     4. Keep the answer concise (3-5 sentences).
     5. Do NOT invent data not present in the retrieved documents.

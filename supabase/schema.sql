@@ -123,7 +123,8 @@ CREATE INDEX IF NOT EXISTS datasets_user_id_idx ON public.datasets(user_id);
 CREATE TABLE IF NOT EXISTS public.analysis_runs (
     id              TEXT PRIMARY KEY,
     user_id         UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    dataset_id      TEXT,
+    dataset_id      UUID REFERENCES public.datasets(id) ON DELETE SET NULL,
+    source_label    TEXT NOT NULL DEFAULT '',
     metric          TEXT NOT NULL,
     storage_key     TEXT,
     source_type     TEXT NOT NULL DEFAULT 'saved_dataset',
@@ -133,6 +134,8 @@ CREATE TABLE IF NOT EXISTS public.analysis_runs (
     progress_meta   JSONB NOT NULL DEFAULT '{}',
     error_message   TEXT,
     report_id       UUID,
+    retry_count     INTEGER NOT NULL DEFAULT 0,
+    dead_lettered_at TIMESTAMPTZ,
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -168,7 +171,11 @@ CREATE TABLE IF NOT EXISTS public.rca_reports (
     assigned_owner   TEXT DEFAULT '',
     internal_notes   TEXT DEFAULT '',
     share_token      TEXT UNIQUE,
+    share_created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    share_created_at TIMESTAMPTZ,
     share_expires_at TIMESTAMPTZ,
+    share_last_accessed_at TIMESTAMPTZ,
+    share_revoked_at TIMESTAMPTZ,
     last_client_delivery_at TIMESTAMPTZ,
     delivery_channel TEXT,
     feedback_rating  INTEGER CHECK (feedback_rating BETWEEN 1 AND 5),
@@ -322,6 +329,12 @@ GRANT EXECUTE ON FUNCTION public.match_rca_embeddings(vector, uuid, int) TO auth
 -- These policies ensure users only see their own data.
 
 -- profiles: users can only read/update their own profile
+-- P2-D SECURITY NOTE: There is intentionally NO INSERT policy here.
+-- New profile rows are created exclusively by the SECURITY DEFINER trigger
+-- ``handle_new_user`` (defined above). If you add an INSERT policy, users
+-- could craft a Supabase client call to insert a profile row with an
+-- arbitrary ``subscription_tier`` (e.g. 'business') at signup, bypassing
+-- Stripe entirely. The trigger-only insertion is the correct pattern.
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "profiles_select_own" ON public.profiles
