@@ -94,6 +94,7 @@ desktop.ini
 # ── IDEs ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+.claude/            # AI assistant session data / personal notes
 *.suo
 *.ntvs*
 *.njsproj
