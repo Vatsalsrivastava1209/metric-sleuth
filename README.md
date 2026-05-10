@@ -92,3 +92,11 @@ Use the runbook in [docs/PRODUCTION_ROLLOUT.md](/C:/Users/12vat/metric-sleuth/do
 - exact Supabase migration order
 - deploy sequencing across API, worker, beat, and frontend
 - smoke tests and post-deploy validation
+
+## Engineering workflow
+
+Use [docs/MERGE_CHECKLIST.md](/C:/Users/12vat/metric-sleuth/docs/MERGE_CHECKLIST.md) before merging non-trivial work into `main`.
+
+## Railway recovery
+
+If GitHub shows broken Railway deploy checks, use [docs/RAILWAY_RECOVERY_CHECKLIST.md](/C:/Users/12vat/metric-sleuth/docs/RAILWAY_RECOVERY_CHECKLIST.md) to rebuild one canonical Railway topology for the repo.

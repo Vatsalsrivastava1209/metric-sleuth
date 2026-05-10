@@ -33,60 +33,63 @@ export default async function LoginPage({
   const isSignUp = mode === 'signup'
 
   return (
-    <div className="min-h-dvh bg-slate-950 text-slate-100">
-      <div className="mx-auto grid min-h-dvh max-w-7xl gap-8 px-4 sm:px-6 py-8 sm:py-10
-                      lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+    <div className="min-h-dvh bg-transparent text-slate-100 selection:bg-sky-500/30 relative overflow-hidden flex flex-col">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(255,255,255,0.03),_transparent_50%)]" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-3xl h-[1px] bg-gradient-to-r from-transparent via-sky-400/50 to-transparent" />
+      <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 sm:py-16 grid gap-10 lg:gap-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
 
         {/* ── Left: value prop ─────────────────────────────────────────── */}
         <section className="space-y-6 lg:space-y-8">
-          <div className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs uppercase tracking-[0.26em] text-sky-200">
+          <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] uppercase tracking-[0.3em] font-medium text-slate-300 backdrop-blur-md shadow-[0_0_15px_rgba(255,255,255,0.05)]">
             Metric Sleuth
           </div>
 
-          <div className="space-y-3">
-            <h1 className="max-w-3xl text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-white">
-              The anomaly desk for ecommerce agencies.
+          <div className="space-y-4">
+            <h1 className="max-w-3xl text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-white/70 leading-[1.05] drop-shadow-sm">
+              The anomaly desk for <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-400">ecommerce agencies.</span>
             </h1>
-            <p className="max-w-2xl text-base sm:text-lg leading-8 text-slate-300">
+            <p className="max-w-2xl text-lg sm:text-xl leading-relaxed text-slate-400 font-light">
               Monitor client accounts, rank likely drivers, and ship white-label investigation briefs faster than your reporting process can.
             </p>
           </div>
 
           {/* Pillars — hidden on mobile/tablet, shown on desktop */}
-          <div className="hidden lg:grid gap-4 sm:grid-cols-3">
+          <div className="hidden lg:grid gap-5 sm:grid-cols-3 mt-8">
             {pillars.map((pillar) => {
               const Icon = pillar.icon
               return (
-                <div key={pillar.title} className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-                  <div className="inline-flex rounded-2xl border border-slate-700 bg-slate-950/70 p-3">
-                    <Icon className="h-4 w-4 text-amber-300" />
+                <div key={pillar.title} className="group glass rounded-3xl p-6 relative overflow-hidden transition-all hover:-translate-y-1 hover:shadow-[0_10px_40px_rgba(14,165,233,0.1)]">
+                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  <div className="inline-flex rounded-2xl border border-white/10 bg-white/5 p-3 shadow-inner backdrop-blur-md">
+                    <Icon className="h-5 w-5 text-sky-400" />
                   </div>
-                  <h2 className="mt-4 text-base font-medium text-white">{pillar.title}</h2>
-                  <p className="mt-2 text-sm leading-7 text-slate-400">{pillar.body}</p>
+                  <h2 className="mt-5 text-base font-semibold text-white tracking-tight">{pillar.title}</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-400 font-light">{pillar.body}</p>
                 </div>
               )
             })}
           </div>
 
           {/* Compact trust line — shown on mobile/tablet instead of pillars */}
-          <div className="lg:hidden flex flex-wrap gap-x-4 gap-y-2">
+          <div className="lg:hidden flex flex-wrap gap-x-4 gap-y-2 mt-6">
             {['Portfolio monitoring', 'Client-ready briefs', 'Secure multi-tenant storage'].map((item) => (
-              <span key={item} className="inline-flex items-center gap-1.5 text-sm text-slate-400">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <span key={item} className="inline-flex items-center gap-2 text-sm text-slate-400 font-light">
+                <CheckCircle2 className="h-3.5 w-3.5 text-sky-400 shrink-0" />
                 {item}
               </span>
             ))}
           </div>
 
           {/* Testimonial block — desktop only */}
-          <div className="hidden lg:block rounded-[28px] border border-slate-800 bg-slate-900/60 p-6">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-3">
-                <Activity className="h-5 w-5 text-emerald-300" />
+          <div className="hidden lg:block glass rounded-[28px] p-6 mt-8 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+            <div className="flex items-center gap-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-md">
+                <Activity className="h-5 w-5 text-sky-400" />
               </div>
               <div>
-                <div className="text-sm font-medium text-white">Built for account managers and analytics leads</div>
-                <div className="text-sm text-slate-400">
+                <div className="text-sm font-semibold text-white tracking-tight">Built for account managers and analytics leads</div>
+                <div className="text-sm text-slate-400 font-light mt-0.5">
                   Connect client data, investigate the anomaly, review the brief, and send it.
                 </div>
               </div>
@@ -95,27 +98,28 @@ export default async function LoginPage({
         </section>
 
         {/* ── Right: auth form ─────────────────────────────────────────── */}
-        <section>
-          <Card className="border-slate-800 bg-slate-900/80 text-slate-100 shadow-[0_32px_80px_rgba(2,6,23,0.42)]">
+        <section className="relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-b from-sky-400/20 to-transparent rounded-3xl opacity-0 lg:group-hover:opacity-100 transition-opacity duration-500 blur-md"></div>
+          <Card className="relative glass border-white/10 bg-black/60 backdrop-blur-2xl text-slate-100 shadow-[0_32px_80px_rgba(0,0,0,0.8)] rounded-3xl overflow-hidden">
 
             {/* Tab toggle */}
-            <div className="flex border-b border-slate-800">
+            <div className="flex border-b border-white/10">
               <Link
                 href="/login"
-                className={`flex-1 py-3.5 text-center text-sm font-medium transition-colors ${
+                className={`flex-1 py-4 text-center text-xs sm:text-sm font-medium transition-all ${
                   !isSignUp
-                    ? 'text-white border-b-2 border-amber-400 -mb-px'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'text-white border-b-2 border-sky-400 bg-white/5 -mb-px'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
                 }`}
               >
                 Sign In
               </Link>
               <Link
                 href="/login?mode=signup"
-                className={`flex-1 py-3.5 text-center text-sm font-medium transition-colors ${
+                className={`flex-1 py-4 text-center text-xs sm:text-sm font-medium transition-all ${
                   isSignUp
-                    ? 'text-white border-b-2 border-amber-400 -mb-px'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'text-white border-b-2 border-sky-400 bg-white/5 -mb-px'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
                 }`}
               >
                 Create Account
@@ -133,24 +137,24 @@ export default async function LoginPage({
 
             <CardContent>
               {message === 'check-email' ? (
-                <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-6 text-center">
-                  <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 p-3">
-                    <Mail className="h-5 w-5 text-emerald-400" />
+                <div className="flex flex-col items-center gap-4 rounded-2xl border border-sky-500/20 bg-sky-500/10 p-8 text-center backdrop-blur-md">
+                  <div className="rounded-full border border-sky-500/20 bg-sky-500/10 p-4 shadow-[0_0_15px_rgba(14,165,233,0.15)]">
+                    <Mail className="h-6 w-6 text-sky-400" />
                   </div>
                   <div>
-                    <div className="font-medium text-emerald-300">Check your inbox</div>
-                    <p className="mt-1 text-sm text-slate-400">
+                    <div className="text-lg font-semibold text-white tracking-tight">Check your inbox</div>
+                    <p className="mt-2 text-sm text-slate-400 font-light leading-relaxed">
                       We sent you a confirmation link. Click it to activate your account, then sign in here.
                     </p>
                   </div>
-                  <Link href="/login" className="mt-2 text-sm text-amber-400 hover:text-amber-300 transition-colors">
+                  <Link href="/login" className="mt-4 text-sm font-medium text-sky-400 hover:text-sky-300 transition-colors">
                     Back to Sign In
                   </Link>
                 </div>
               ) : (
                 <form className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="text-slate-200">Email</Label>
+                  <div className="space-y-2.5">
+                    <Label htmlFor="email" className="text-slate-200 font-medium tracking-tight">Email</Label>
                     <Input
                       id="email"
                       name="email"
@@ -158,12 +162,12 @@ export default async function LoginPage({
                       placeholder="ops@youragency.com"
                       required
                       autoComplete="email"
-                      className="bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-500 focus-visible:ring-amber-400/40"
+                      className="bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-sky-400/50 rounded-xl h-11 transition-all focus:bg-white/10"
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="password" className="text-slate-200">Password</Label>
+                  <div className="space-y-2.5">
+                    <Label htmlFor="password" className="text-slate-200 font-medium tracking-tight">Password</Label>
                     <Input
                       id="password"
                       name="password"
@@ -171,47 +175,49 @@ export default async function LoginPage({
                       placeholder={isSignUp ? 'At least 6 characters' : ''}
                       required
                       autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                      className="bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-500 focus-visible:ring-amber-400/40"
+                      className="bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-sky-400/50 rounded-xl h-11 transition-all focus:bg-white/10"
                     />
                   </div>
 
                   {error && (
-                    <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                    <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300 shadow-sm backdrop-blur-md">
                       {error}
                     </p>
                   )}
 
-                  {isSignUp ? (
-                    <>
-                      <Button
-                        formAction={signup}
-                        className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold"
-                      >
-                        Create free account
-                      </Button>
-                      <div className="flex items-start gap-2 pt-1">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-slate-500 mt-0.5 shrink-0" />
-                        <p className="text-xs text-slate-500">
-                          Free plan includes 3 client workspaces and unlimited investigations.
+                  <div className="pt-2">
+                    {isSignUp ? (
+                      <>
+                        <Button
+                          formAction={signup}
+                          className="w-full bg-white hover:bg-slate-100 hover:scale-[1.02] text-black font-semibold rounded-full h-11 transition-all shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                        >
+                          Create free account
+                        </Button>
+                        <div className="flex items-start gap-2 pt-4">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-sky-400 mt-0.5 shrink-0" />
+                          <p className="text-xs text-slate-400 font-light leading-relaxed">
+                            Free plan includes 3 client workspaces and unlimited investigations.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          formAction={login}
+                          className="w-full bg-white hover:bg-slate-100 hover:scale-[1.02] text-black font-semibold rounded-full h-11 transition-all shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                        >
+                          Sign In
+                        </Button>
+                        <p className="text-center text-sm text-slate-400 pt-5 font-light">
+                          No account yet?{' '}
+                          <Link href="/login?mode=signup" className="text-sky-400 hover:text-sky-300 transition-colors font-medium">
+                            Create one free
+                          </Link>
                         </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Button
-                        formAction={login}
-                        className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold"
-                      >
-                        Sign In
-                      </Button>
-                      <p className="text-center text-xs text-slate-500 pt-1">
-                        No account yet?{' '}
-                        <Link href="/login?mode=signup" className="text-amber-400 hover:text-amber-300 transition-colors">
-                          Create one free
-                        </Link>
-                      </p>
-                    </>
-                  )}
+                      </>
+                    )}
+                  </div>
                 </form>
               )}
             </CardContent>

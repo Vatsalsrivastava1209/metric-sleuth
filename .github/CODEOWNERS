@@ -1,0 +1,14 @@
+# Metric Sleuth code ownership
+# Keep this file simple until more maintainers join.
+
+# Default owner for the whole repository
+* @Vatsalsrivastava1209
+
+# Deployment and release-sensitive surfaces
+/.github/ @Vatsalsrivastava1209
+/api/ @Vatsalsrivastava1209
+/frontend/ @Vatsalsrivastava1209
+/src/ @Vatsalsrivastava1209
+/supabase/ @Vatsalsrivastava1209
+/tests/ @Vatsalsrivastava1209
+
