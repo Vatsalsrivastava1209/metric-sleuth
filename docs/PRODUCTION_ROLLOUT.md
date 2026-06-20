@@ -35,12 +35,12 @@ change with the same release.
 ### Existing environment
 
 For an existing project, apply only the ordered migration files in
-[`supabase/migrations`](/C:/Users/12vat/metric-sleuth/supabase/migrations).
+[`supabase/migrations`](../supabase/migrations).
 
 Current order:
 
-1. [`20260408_enterprise_hardening.sql`](/C:/Users/12vat/metric-sleuth/supabase/migrations/20260408_enterprise_hardening.sql)
-2. [`20260409_memory_fail_closed_and_schema_alignment.sql`](/C:/Users/12vat/metric-sleuth/supabase/migrations/20260409_memory_fail_closed_and_schema_alignment.sql)
+1. [`20260408_enterprise_hardening.sql`](../supabase/migrations/20260408_enterprise_hardening.sql)
+2. [`20260409_memory_fail_closed_and_schema_alignment.sql`](../supabase/migrations/20260409_memory_fail_closed_and_schema_alignment.sql)
 
 Execution checklist:
 
@@ -54,8 +54,8 @@ Execution checklist:
 
 For a brand-new environment:
 
-1. Apply [`schema.sql`](/C:/Users/12vat/metric-sleuth/supabase/schema.sql)
-2. Skip [`api/supabase_rls.sql`](/C:/Users/12vat/metric-sleuth/api/supabase_rls.sql)
+1. Apply [`schema.sql`](../supabase/schema.sql)
+2. Skip [`api/supabase_rls.sql`](../api/supabase_rls.sql)
    It is now a compatibility note, not an executable migration source.
 
 For a fresh environment built from `schema.sql`, the two migration files above
@@ -151,7 +151,7 @@ Expected current baseline:
 
 ### Phase B: Backend API
 
-1. Deploy the API image from [`Dockerfile`](/C:/Users/12vat/metric-sleuth/Dockerfile).
+1. Deploy the API image from [`Dockerfile`](../Dockerfile).
 2. Confirm `/api/health` returns `200`.
 3. Confirm the API has live connectivity to:
    - Supabase
@@ -161,7 +161,7 @@ Expected current baseline:
 ### Phase C: Celery worker
 
 1. Deploy a dedicated worker process from the same backend image.
-2. Use the worker command already modeled in [`docker-compose.yml`](/C:/Users/12vat/metric-sleuth/docker-compose.yml):
+2. Use the worker command already modeled in [`docker-compose.yml`](../docker-compose.yml):
 
 ```bash
 celery -A api.worker.celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=100
@@ -173,7 +173,7 @@ celery -A api.worker.celery_app worker --loglevel=info --concurrency=4 --max-tas
 ### Phase D: Celery beat
 
 1. Deploy a dedicated beat process from the same backend image.
-2. Use the beat command modeled in [`docker-compose.yml`](/C:/Users/12vat/metric-sleuth/docker-compose.yml):
+2. Use the beat command modeled in [`docker-compose.yml`](../docker-compose.yml):
 
 ```bash
 celery -A api.worker.celery_app beat --loglevel=info --scheduler=celery.beat:PersistentScheduler --schedule=/data/celerybeat-schedule
@@ -183,7 +183,7 @@ celery -A api.worker.celery_app beat --loglevel=info --scheduler=celery.beat:Per
 
 ### Phase E: Frontend
 
-1. Deploy the Next.js image from [`frontend/Dockerfile`](/C:/Users/12vat/metric-sleuth/frontend/Dockerfile).
+1. Deploy the Next.js image from [`frontend/Dockerfile`](../frontend/Dockerfile).
 2. Confirm the frontend is pointed at the new API URL.
 3. Confirm authentication succeeds against the same Supabase project as the backend.
 
@@ -331,8 +331,8 @@ Use this rule:
 
 ## 10. Known rollout cautions
 
-- [`render.yaml`](/C:/Users/12vat/metric-sleuth/render.yaml) currently models web services but does not fully describe the full production worker/beat topology by itself. Treat this runbook as authoritative until platform config is expanded.
-- [`Dockerfile`](/C:/Users/12vat/metric-sleuth/Dockerfile) still creates `/app/data`, which is harmless, but semantic memory no longer relies on local disk state.
+- [`render.yaml`](../render.yaml) currently models web services but does not fully describe the full production worker/beat topology by itself. Treat this runbook as authoritative until platform config is expanded.
+- [`Dockerfile`](../Dockerfile) still creates `/app/data`, which is harmless, but semantic memory no longer relies on local disk state.
 - Semantic memory is intentionally stricter now. Missing embedding config should produce a visible unavailable state, not silent degradation.
 
 ## 11. Exit criteria for a successful rollout

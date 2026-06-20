@@ -4,6 +4,17 @@ Client anomaly detection and white-label investigation briefs for ecommerce agen
 
 Metric Sleuth is a SaaS product for agencies managing multiple ecommerce or paid media accounts. The product is no longer framed as a generic enterprise analytics platform. The wedge is narrower and more useful: help agency teams catch client KPI anomalies early, investigate likely drivers quickly, and send a clean client-ready brief without rebuilding the story from scratch.
 
+## Product Snapshot
+
+| | |
+|---|---|
+| **Business problem** | Agencies repeatedly rebuild explanations for sudden revenue, traffic, order, and conversion-rate changes across client accounts. |
+| **Quantified validation** | The labeled regression fixture reaches **at least 99% recall** and covers a **5-sigma spike** plus an **80% revenue drop**. This is a fixture-level guardrail, not a production accuracy claim. |
+| **Method** | Rolling anomaly detection, segmentation, contribution and correlation analysis, ranked hypotheses, and LLM-assisted internal/client briefs. |
+| **Demo** | Local full-stack demo: start FastAPI on port `8000`, then run the Next.js frontend with `npm run dev`. |
+| **Limitations** | No public production benchmark or hosted demo is claimed; local operation requires Supabase, Redis, and the configured worker services. |
+| **Reproduce** | Backend: `pip install -r requirements.txt` and `uvicorn api.main:app --reload --port 8000`. Frontend: `cd frontend`, `npm install`, `npm run dev`. Tests: `python -m pytest -q`. |
+
 ## What the product does
 
 - Saves storefront and channel exports as reusable client workspaces.
@@ -87,7 +98,7 @@ The anomaly detector includes a lightweight backtesting path in `src/anomaly_eva
 
 ## Production rollout
 
-Use the runbook in [docs/PRODUCTION_ROLLOUT.md](/C:/Users/12vat/metric-sleuth/docs/PRODUCTION_ROLLOUT.md) for:
+Use the runbook in [docs/PRODUCTION_ROLLOUT.md](docs/PRODUCTION_ROLLOUT.md) for:
 
 - exact Supabase migration order
 - deploy sequencing across API, worker, beat, and frontend
@@ -95,8 +106,8 @@ Use the runbook in [docs/PRODUCTION_ROLLOUT.md](/C:/Users/12vat/metric-sleuth/do
 
 ## Engineering workflow
 
-Use [docs/MERGE_CHECKLIST.md](/C:/Users/12vat/metric-sleuth/docs/MERGE_CHECKLIST.md) before merging non-trivial work into `main`.
+Use [docs/MERGE_CHECKLIST.md](docs/MERGE_CHECKLIST.md) before merging non-trivial work into `main`.
 
 ## Railway recovery
 
-If GitHub shows broken Railway deploy checks, use [docs/RAILWAY_RECOVERY_CHECKLIST.md](/C:/Users/12vat/metric-sleuth/docs/RAILWAY_RECOVERY_CHECKLIST.md) to rebuild one canonical Railway topology for the repo.
+If GitHub shows broken Railway deploy checks, use [docs/RAILWAY_RECOVERY_CHECKLIST.md](docs/RAILWAY_RECOVERY_CHECKLIST.md) to rebuild one canonical Railway topology for the repo.
